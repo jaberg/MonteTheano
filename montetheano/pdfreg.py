@@ -41,23 +41,62 @@ def pdf(rv, sample, **kwargs):
 
 
 @register_pdf
+def uniform(rv, sample, kw):
+    if (rv.owner
+            and isinstance(rv.owner.op, tensor.raw_random.RandomFunction)
+            and rv.owner.op.fn == numpy.random.RandomState.uniform):
+        random_state, size, low, high = rv.owner.inputs
+
+        # make sure that the division is done at least with float32 precision
+        one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+        rval = multiswitch(
+            0,                sample < low,
+            one / (high-low), sample <= high,
+            0)
+        return rval
+    else:
+        raise WrongPdfHandler()
+
+
+@register_pdf
 def normal(rv, sample, kw):
     if (rv.owner
             and isinstance(rv.owner.op, tensor.raw_random.RandomFunction)
             and rv.owner.op.fn == numpy.random.RandomState.normal):
         random_state, size, avg, std = rv.owner.inputs
+
         # make sure that the division is done at least with float32 precision
-        f32 = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+        one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
         Z = tensor.sqrt(2 * numpy.pi * std**2)
-        E = 0.5 * ((avg - sample)/(f32*std))**2
-        return tensor.prod(tensor.exp(-E) / Z)
+        E = 0.5 * ((avg - sample)/(one*std))**2
+        return tensor.exp(-E) / Z
     else:
         raise WrongPdfHandler()
 
-#@register_pdf
-def uniform(rv, sample, kw):
-    random_state, size, avg, std = rv.owner.inputs
-    # assume sample has sample.shape == size
-    Z = (2 * numpy.pi * std**2)
-    E = 0.5 * ((avg - sample)/(f32*std))**2
-    return tensor.prod(tensor.exp(-E) / Z)
+
+# HELPER FUNCTIONS THAT MIGHT GET INTO THEANO?
+def multiswitch(*args):
+    """Build a nested elemwise if elif ... statement.
+
+        multiswitch(
+            a, cond_a,
+            b, cond_b,
+            c)
+
+    Translates roughly to an elementwise version of this...
+
+        if cond_a:
+            a
+        elif cond_b:
+            b
+        else:
+            c
+    """
+    assert len(args) % 2, 'need an add number of args'
+    if len(args) == 1:
+        return args[0]
+    else:
+        return tensor.switch(
+                args[1],
+                args[0],
+                multiswitch(*args[2:]))
