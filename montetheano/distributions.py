@@ -8,19 +8,7 @@ from theano.compile import rebuild_collect_shared
 from theano import tensor
 from theano.gof.graph import ancestors
 
-
-def normal_pdf(rv, sample):
-    random_state, size, avg, std = rv.owner.inputs
-    # assume sample has sample.shape == size
-    Z = (2 * numpy.pi * std**2)
-    E = 0.5 * ((avg - sample)/std)**2
-    return tensor.prod(tensor.exp(-E) / Z)
-
-def is_random_var(v):
-    #TODO: How to make this work with non-standard RandomStreams?
-    if v.owner and isinstance(v.owner.op, tensor.raw_random.RandomFunction):
-        return True
-    return False
+from .pdfreg import pdf
 
 
 def likelihood(observations):
@@ -38,7 +26,7 @@ def likelihood(observations):
     for rv in RVs:
         if rv not in observations:
             raise ValueError('missing observations')
-    pdfs = [normal_pdf(rv, obs) for rv,obs in observations.items()]
+    pdfs = [pdf(rv, obs) for rv,obs in observations.items()]
 
     lik = tensor.mul(*pdfs)
 
