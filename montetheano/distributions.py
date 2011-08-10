@@ -3,53 +3,24 @@
 
 import numpy
 
+import theano
+from theano.compile import rebuild_collect_shared
 from theano import tensor
-from theano.gof.graph import stack_search, deque
+from theano.gof.graph import ancestors
 
-class Normal(object):
 
-    def pdf(self, node, sample):
-        random_state, size, avg, std = node.inputs
-
-        # assume sample has sample.shape == size
-
-        Z = (2 * pi * std**2)
-        E = 0.5 * ((avg - sample)/std)**2
-
-        return tensor.prod(tensor.exp(-E) / Z)
+def normal_pdf(rv, sample):
+    random_state, size, avg, std = rv.owner.inputs
+    # assume sample has sample.shape == size
+    Z = (2 * numpy.pi * std**2)
+    E = 0.5 * ((avg - sample)/std)**2
+    return tensor.prod(tensor.exp(-E) / Z)
 
 def is_random_var(v):
     #TODO: How to make this work with non-standard RandomStreams?
-
     if v.owner and isinstance(v.owner.op, tensor.raw_random.RandomFunction):
         return True
     return False
-
-def ancestors(variable_list, blockers = None):
-    """Return the inputs required to compute the given Variables.
-
-    :type variable_list: list of `Variable` instances
-    :param variable_list:
-        output `Variable` instances from which to search backward through owners
-    :rtype: list of `Variable` instances
-    :returns:
-        input nodes with no owner, in the order found by a left-recursive depth-first search
-        started at the nodes in `variable_list`.
-
-    """
-    def expand(r):
-        if r.owner and (not blockers or r not in blockers):
-            l = list(r.owner.inputs)
-            l.reverse()
-            return l
-    dfs_variables = stack_search(deque(variable_list), expand, 'dfs')
-    return dfs_variables
-
-def clone_with_givens(var, givens):
-    return theano.compile.pfunc.rebuild_collect_shared(
-            [var],
-            replace=givens)
-
 
 
 def likelihood(observations):
@@ -63,13 +34,22 @@ def likelihood(observations):
         rv_observations[i] is the i'th observation or RV
 
     """
-    rval = []
-    for rv in observations:
-        rv_lik = rv.owner.op.likelihood(observations[rv])
-        cloned_rv_lik = clone_with_givens(rv_lik, givens=observations)
-        rval.append(cloned_rv_lik)
+    RVs = [v for v in ancestors(observations.keys()) if is_random_var(v)]
+    for rv in RVs:
+        if rv not in observations:
+            raise ValueError('missing observations')
+    pdfs = [normal_pdf(rv, obs) for rv,obs in observations.items()]
 
-    return tensor.prod(*rval)
+    lik = tensor.mul(*pdfs)
+
+    cloned_inputs, cloned_outputs, otherstuff = rebuild_collect_shared(
+            outputs=[lik],
+            replace=observations,
+            copy_inputs_over=False,
+            no_default_updates=True)
+
+    return cloned_outputs[0]
+
 
 def sample(s_rng, outputs, size):
     """
@@ -98,7 +78,6 @@ def sample(s_rng, outputs, size):
         raise NotImplementedError()
 
     return outputs, rdict
-
 
 
 def mh_sample(s_rng, outputs, observations):

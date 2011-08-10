@@ -37,6 +37,13 @@ class TestHierarchicalNormal(unittest.TestCase):
         print x0, m0, v0
 
     def test_likelihood(self):
+        outs, obs = sample(self.s_rng, [self.X], ())
+
+        lik = likelihood(obs)
+
+        f = theano.function([], lik)
+
+        print f()
 
 
     def test_mh_sample(self):
