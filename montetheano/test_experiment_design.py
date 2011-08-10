@@ -1,32 +1,53 @@
-import tensor
+import unittest
+import numpy
+import theano
+from theano import tensor
 from for_theano import where
+from pdfreg import RVs
 
-class TestSimple(self):
+class TestSimple(unittest.TestCase):
 
-    def setup(self):
+    def setUp(self):
 
         s_rng = tensor.shared_randomstreams.RandomStreams(23424)
 
+        n_draws = tensor.lscalar()
+        v_draws = n_draws.dimshuffle('x')
         spec = self.spec = {}
-        spec['lr'] = 10**s_rng.uniform((), low=0, high=1)
-        spec['pp'] = s_rng.bernoulli((), p=0.5)
+        spec['lr'] = 10**s_rng.uniform(size=v_draws, low=-5, high=0, ndim=1)
+        spec['pp'] = s_rng.uniform(size=v_draws, ndim=1) < 0.5
 
-        self.data = [
-                (.1, dict(lr=.7, pp=0)),
-                (.2, dict(lr=.02, pp=1)),
-                (.6, dict(lr=.0001, pp=1)),
-                (.15, dict(lr=.001, pp=0)),
-                (.01, dict(lr=.03, pp=0))]
+        spec_items = spec.items()
+        rvs = self.rvs = RVs(spec.values()) # symbolic uniform draws
+        assert len(rvs) == 2
 
-    def test_algo1(self):
+        # we want to minimize this
+        # which is normally not something we have as an expression
+        y = (s_rng.normal(size=v_draws, ndim=1)*0.1
+                - spec['pp']
+                + rvs[0]**2
+                + rvs[1]**2)
 
-        # split data into good and bad
-        self.data.sort()
-        cutoff = int(.15 * len(self.data))
-        good_data = self.data[:cutoff]
-        bad_data = self.data[cutoff:]
+        spec_values = [v for (k,v) in spec_items] # symbolic lr, pp
 
-        algo1 = Algo1()
+        self.draw_from_prior = theano.function([n_draws], [y] + spec_values + rvs)
+
+        draws = self.draw_from_prior(10)
+        self.yvals = draws[0]
+
+        self.observations = dict(zip([k for (k,v) in spec_items], draws[1:]))
+        self.random_samples = dict(zip(rvs, draws[1+len(spec_items):]))
+
+
+    def test_draw_from_prior(self):
+        print self.draw_from_prior(5)
+
+    def _algo1(self):
+
+        algo1 = Algo1(self.spec)
+        for i in xrange(100):
+            new_point = algo1.suggest_trial(random_samples, losses)
+
 
         good_model = model_from_spec(self.spec, size=len(good_data))
         bad_model = model_from_spec(self.spec, size=len(bad_data))
@@ -67,11 +88,9 @@ class TestSimple(self):
                     wrt_symbol = self.rv_llr,
                     wrt_init = self.sample_llr_interest)
 
-    def test_rv_llr_interest(self):
-        theano.printing.debugprint(self.rv_llr)#, 'asdf.png')
 
 
-class TestNested(self):
+class TestNested(unittest.TestCase):
 
     def setup(self):
 

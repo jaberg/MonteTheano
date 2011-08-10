@@ -4,9 +4,7 @@
 import numpy
 
 import theano
-from theano.compile import rebuild_collect_shared
 from theano import tensor
-from theano.gof.graph import ancestors
 
 from .pdfreg import pdf
 

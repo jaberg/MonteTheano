@@ -5,6 +5,9 @@ import numpy
 import theano
 from theano import tensor
 
+from theano.compile import rebuild_collect_shared
+from theano.gof.graph import ancestors
+
 from for_theano import multiswitch
 
 
@@ -24,6 +27,15 @@ def is_random_var(v):
     if v.owner and isinstance(v.owner.op, tensor.raw_random.RandomFunction):
         return True
     return False
+
+def RVs(outputs):
+    """
+    Return a list of all random variables required to compute `outputs`.
+    """
+    all_vars = ancestors(outputs)
+    assert outputs[0] in all_vars
+    rval = [v for v in all_vars if is_random_var(v)]
+    return rval
 
 
 def register_pdf(f):
