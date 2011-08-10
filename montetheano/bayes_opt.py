@@ -4,7 +4,10 @@ import theano
 from theano import tensor
 from theano.printing import Print
 
+from for_theano import where
+
 import unittest
+
 def as_variables(*args):
     return [tensor.as_tensor_variable(a) for a in args]
 
@@ -94,24 +97,6 @@ def gauss_mixture(s_rng, mu, sigma):
             low=0, high=mu.shape[0]-1)
     return s_rng.normal(avg=mu[i], std=sigma[i])
 
-class Where(theano.Op):
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return hash(type(self))
-
-    def make_node(self, x):
-        if x.ndim != 1:
-            raise NotImplementedError()
-        return theano.gof.Apply(self,
-                [x],
-                [tensor.lvector()])
-
-    def perform(self, node, inputs, outstorage):
-        outstorage[0][0] = numpy.where(inputs[0])
-where = Where()
-
 
 def factorize(RVs):
     """
@@ -126,14 +111,12 @@ def factorize(RVs):
     """
     raise NotImplementedError()
 
+class experiment_model(object):
+    """
+    """
 
+    def __init__(self):
 
-
-def sample(*args, **kwargs):
-    pass
-
-def maximize(*arg, **kwargss):
-    pass
 
 class TestGM(unittest.TestCase):
 

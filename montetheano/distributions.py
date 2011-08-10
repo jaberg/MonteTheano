@@ -11,35 +11,13 @@ from theano.gof.graph import ancestors
 from .pdfreg import pdf
 
 
-def likelihood(observations):
-    """
-    \sum_i log(P(observations)) given that observations[i] ~ RV, iid.
-
-    observations: a dictionary mapping random variables to tensors.
-
-        observations[RV] = rv_observations
-
-        rv_observations[i] is the i'th observation or RV
-
-    """
-    RVs = [v for v in ancestors(observations.keys()) if is_random_var(v)]
-    for rv in RVs:
-        if rv not in observations:
-            raise ValueError('missing observations')
-    pdfs = [pdf(rv, obs) for rv,obs in observations.items()]
-
-    lik = tensor.mul(*pdfs)
-
-    cloned_inputs, cloned_outputs, otherstuff = rebuild_collect_shared(
-            outputs=[lik],
-            replace=observations,
-            copy_inputs_over=False,
-            no_default_updates=True)
-
-    return cloned_outputs[0]
+###########################################################
+# Stock proposal distributions
+# for random variables in theano.tensor.raw_random
+###########################################################
 
 
-def sample(s_rng, outputs, size):
+def full_sample(s_rng, outputs ):
     """
     Return dictionary mapping random vars to their symbolic samples.
     """
@@ -48,8 +26,7 @@ def sample(s_rng, outputs, size):
 
     RVs = [v for v in all_vars if is_random_var(v)]
 
-    if size == () or size == []:
-        rdict = dict([(v, v) for v in RVs])
+    rdict = dict([(v, v) for v in RVs])
         # outputs is same
     elif isinstance(size, int):
         # use scan

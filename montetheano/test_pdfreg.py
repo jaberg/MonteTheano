@@ -6,6 +6,7 @@ from theano import tensor
 
 from .pdfreg import pdf
 
+
 def SRNG(seed=2345):
     return tensor.shared_randomstreams.RandomStreams(seed)
 
@@ -29,6 +30,7 @@ def test_normal_simple():
 
     assert numpy.allclose(pvals,targets), (pvals, targets)
 
+
 def test_normal_w_params():
     s_rng = SRNG()
     n = s_rng.normal(avg=2, std=3)
@@ -48,8 +50,10 @@ def test_normal_w_params():
 
     assert numpy.allclose(pvals,targets), (pvals, targets)
 
+
 def test_normal_nonscalar():
     raise NotImplementedError()
+
 
 def test_normal_w_broadcasting():
     raise NotImplementedError()
@@ -71,6 +75,7 @@ def test_uniform_simple():
 
     assert numpy.allclose(pvals,targets), (pvals, targets)
 
+
 def test_uniform_w_params():
     s_rng = SRNG()
     u = s_rng.uniform(low=-0.999, high=9.001)
@@ -86,8 +91,10 @@ def test_uniform_w_params():
     targets = numpy.asarray([.1, .1, 0, 0])
     assert numpy.allclose(pvals,targets), (pvals, targets)
 
+
 def test_uniform_nonscalar():
     raise NotImplementedError()
+
 
 def test_uniform_w_broadcasting():
     raise NotImplementedError()
