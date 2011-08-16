@@ -1,6 +1,7 @@
 import copy
 import numpy
 import theano
+from theano import tensor
 
 def as_variable(thing):
     if isinstance(thing, theano.Variable):
@@ -37,7 +38,7 @@ where = Where()
 def elemwise_cond(*args):
     """Build a nested elemwise if elif ... statement.
 
-        multiswitch(
+        elemwise_cond(
             a, cond_a,
             b, cond_b,
             c)

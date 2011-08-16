@@ -3,7 +3,7 @@ import numpy
 
 import theano
 from theano import tensor
-from distributions import sample, likelihood
+from distributions import RandomStreams
 
 class TestHierarchicalNormal(unittest.TestCase):
     def setUp(self):
@@ -56,3 +56,25 @@ class TestHierarchicalNormal(unittest.TestCase):
         self.M_samples = posterior[M]
         self.V_samples = posterior[V]
 
+
+class Fitting1D(unittest.TestCase):
+    def setUp(self):
+        self.obs = tensor.as_tensor_variable(
+                numpy.asarray([0.0, 1.01, 0.7, 0.65, 0.3]))
+        self.rstream = RandomStreams(234)
+        self.n = self.rstream.normal()
+        self.u = self.rstream.uniform()
+
+    def test_normal_ml(self):
+        up = self.rstream.ml(self.n, self.obs)
+        p = self.rstream.params(self.n)
+        f = theano.function([], [up[p[0]], up[p[1]]])
+        m,v = f()
+        assert numpy.allclose([m,v], [.532, 0.34856276335])
+
+    def test_uniform_ml(self):
+        up = self.rstream.ml(self.u, self.obs)
+        p = self.rstream.params(self.u)
+        f = theano.function([], [up[p[0]], up[p[1]]])
+        l,h = f()
+        assert numpy.allclose([l,h], [0.0, 1.01])

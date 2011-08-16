@@ -7,28 +7,70 @@ import numpy
 
 import theano
 from theano import tensor
+from for_theano import elemwise_cond
+
+class Updates(dict):
+    def __add__(self, other):
+        rval = Updates(self)
+        rval += other  # see: __iadd__
+        return rval
+    def __iadd__(self, other):
+        d = dict(other)
+        for k,v in d.items():
+            if k in self:
+                raise KeyError()
+
+            self[k] = v
+
+def rv_dist_name(rv):
+    try:
+        return rv.owner.op.dist_name
+    except AttributeError:
+        try:
+            return rv.owner.op.fn.__name__
+        except AttributeError:
+            raise TypeError('rv not recognized as output of RandomFunction')
 
 class RandomStreams(object):
+
     samplers = {}
     pdfs = {}
+    ml_handlers = {}
+    params_handlers = {}
     local_proposals = {}
 
     def __init__(self, seed):
         self.state_updates = []
         self.default_instance_seed = seed
         self.seed_generator = numpy.random.RandomState(seed)
+        self.default_updates = {}
+
+    def shared(self, val, **kwargs):
+        rval = theano.shared(val, **kwargs)
+        return rval
+
+    def sharedX(self, val, **kwargs):
+        rval = theano.shared(
+                numpy.asarray(val, dtype=theano.config.floatX),
+                **kwargs)
+        return rval
+
+    def new_shared_rstate(self):
+        seed = int(self.seed_generator.randint(2**30))
+        rval = theano.shared(numpy.random.RandomState(seed))
+        return rval
+
+    def add_default_update(self, used, recip, new_expr):
+        if used not in self.default_updates:
+            self.default_updates[used] = {}
+        self.default_updates[used][recip] = new_expr
+        used.update = (recip, new_expr) # necessary?
+        recip.default_update = new_expr
+        self.state_updates.append((recip, new_expr))
 
     def sample(self, dist_name, *args, **kwargs):
         handler = self.samplers[dist_name]
-
-        seed = int(self.seed_generator.randint(2**30))
-        random_state_variable = theano.shared(
-                numpy.random.RandomState(seed))
-        new_r, out = handler(random_state_variable, *args, **kwargs)
-        out.rng = random_state_variable
-        out.update = (random_state_variable, new_r)
-        self.state_updates.append(out.update)
-        random_state_variable.default_update = new_r
+        out = handler(self, *args, **kwargs)
         return out
 
     def seed(self, seed=None):
@@ -55,17 +97,32 @@ class RandomStreams(object):
         Return the probability (density) that random variable `rv`, returned by
         a call to one of the sampling routines of this class takes value `sample`
         """
-        _sample = theano.tensor.as_tensor_variable(sample)
         if rv.owner:
-            try:
-                dist_name = rv.owner.op.dist_name
-            except AttributeError:
-                try:
-                    dist_name = rv.owner.op.fn.__name__
-                except AttributeError:
-                    raise TypeError('rv not recognized as output of RandomFunction')
+            dist_name = rv_dist_name(rv)
             pdf = self.pdfs[dist_name]
-            return pdf(rv.owner, _sample, **kwargs)
+            return pdf(rv.owner, sample, kwargs)
+        else:
+            raise TypeError('rv not recognized as output of RandomFunction')
+
+    def ml(self, rv, sample, weights=None):
+        """
+        Return an Updates object mapping distribution parameters to expressions
+        of their maximum likelihood values.
+        """
+        if rv.owner:
+            dist_name = rv_dist_name(rv)
+            pdf = self.ml_handlers[dist_name]
+            return pdf(rv.owner, sample, weights=weights)
+        else:
+            raise TypeError('rv not recognized as output of RandomFunction')
+
+    def params(self, rv):
+        """
+        Return an Updates object mapping distribution parameters to expressions
+        of their maximum likelihood values.
+        """
+        if rv.owner:
+            return self.params_handlers[rv_dist_name(rv)](rv.owner)
         else:
             raise TypeError('rv not recognized as output of RandomFunction')
 
@@ -81,6 +138,17 @@ class RandomStreams(object):
     # - register_sampler
     # - rng_register
     #
+
+def pdf(rv, sample):
+    return rv.rstreams.pdf(rv, sample)
+
+
+def ml_updates(rv, sample, weights=None):
+    return rv.rstreams.ml_updates(rv, sample, weights=weights)
+
+
+def params(rv):
+    return rv.rstreams.params(rv)
 
 
 def register_sampler(dist_name, f):
@@ -106,8 +174,24 @@ def register_sampler(dist_name, f):
 def register_pdf(dist_name, f):
     if dist_name in RandomStreams.pdfs:
         # TODO: allow for multiple handlers?
-        raise KeyError(dist_name)
+        raise KeyError(dist_name, RandomStreams.pdfs[dist_name])
     RandomStreams.pdfs[dist_name] = f
+    return f
+
+
+def register_ml(dist_name, f):
+    if dist_name in RandomStreams.ml_handlers:
+        # TODO: allow for multiple handlers?
+        raise KeyError(dist_name, RandomStreams.ml_handlers[dist_name])
+    RandomStreams.ml_handlers[dist_name] = f
+    return f
+
+
+def register_params(dist_name, f):
+    if dist_name in RandomStreams.params_handlers:
+        # TODO: allow for multiple handlers?
+        raise KeyError(dist_name, RandomStreams.params_handlers[dist_name])
+    RandomStreams.params_handlers[dist_name] = f
     return f
 
 
@@ -119,8 +203,17 @@ def rng_register(f):
     elif f.__name__.endswith('_pdf'):
         dist_name = f.__name__[:-len('_pdf')]
         return register_pdf(dist_name, f)
+
+    elif f.__name__.endswith('_ml'):
+        dist_name = f.__name__[:-len('_ml')]
+        return register_ml(dist_name, f)
+
+    elif f.__name__.endswith('_params'):
+        dist_name = f.__name__[:-len('_params')]
+        return register_params(dist_name, f)
+
     else:
-        raise ValueError("function name doesn't end with _sampler or _pdf")
+        raise ValueError("function name suffix not recognized", f.__name__)
 
 
 class ClobberContext(object):
@@ -149,7 +242,7 @@ class srng_globals(ClobberContext):
             self.obj = RandomStreams(23424)
         else:
             self.obj = obj
-        self.clobber = self.obj.samplers.keys()
+        self.clobber = self.obj.samplers.keys() + ['pdf']
 
 
 #####################
@@ -163,20 +256,35 @@ class srng_globals(ClobberContext):
 
 
 @rng_register
-def uniform_sampler(rstate, low=0.0, high=0.0, shape=None, ndim=None, dtype=None):
-    return tensor.raw_random.uniform(rstate, shape, low, high, ndim, dtype)
+def uniform_sampler(rstream, low=0.0, high=1.0, shape=None, ndim=None, dtype=None):
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = tensor.raw_random.uniform(rstate, shape, low, high, ndim, dtype)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
 
 @rng_register
-def uniform_pdf(node, sample):
+def uniform_pdf(node, sample, kw):
     # make sure that the division is done at least with float32 precision
     one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+    rstate, shape, low, high = node.inputs
     rval = elemwise_cond(
         0,                sample < low,
         one / (high-low), sample <= high,
         0)
     return rval
 
+@rng_register
+def uniform_ml(node, sample, weights):
+    rstate, shape, low, high = node.inputs
+    return Updates({
+        low: sample.min(),
+        high: sample.max()})
+
+@rng_register
+def uniform_params(node):
+    rstate, shape, low, high = node.inputs
+    return [low, high]
 
 # ------
 # Normal
@@ -184,17 +292,49 @@ def uniform_pdf(node, sample):
 
 
 @rng_register
-def normal_sampler(rstate, mu=0.0, sigma=1.0, shape=None, ndim=0, dtype=None):
-    return tensor.raw_random.normal(rstate, shape, mu, sigma, dtype=dtype)
+def normal_sampler(rstream, mu=0.0, sigma=1.0, shape=None, ndim=0, dtype=None):
+    if not isinstance(mu, theano.Variable):
+        mu = tensor.shared(numpy.asarray(mu, dtype=theano.config.floatX))
+    if not isinstance(mu, theano.Variable):
+        sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = tensor.raw_random.normal(rstate, shape, mu, sigma, dtype=dtype)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
 
 @rng_register
 def normal_pdf(node, sample, kw):
     # make sure that the division is done at least with float32 precision
     one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
-    Z = tensor.sqrt(2 * numpy.pi * std**2)
-    E = 0.5 * ((avg - sample)/(one*std))**2
+    rstate, shape, mu, sigma = node.inputs
+    Z = tensor.sqrt(2 * numpy.pi * sigma**2)
+    E = 0.5 * ((mu - sample)/(one*sigma))**2
     return tensor.exp(-E) / Z
+
+@rng_register
+def normal_ml(node, sample, weights):
+    rstate, shape, mu, sigma = node.inputs
+    eps = 1e-8
+    if weights is None:
+        new_mu = tensor.mean(sample)
+        new_sigma = tensor.std(sample)
+
+    else:
+        denom = tensor.maximum(tensor.sum(weights), eps)
+        new_mu = tensor.sum(sample*weights) / denom
+        new_sigma = tensor.sqrt(
+                tensor.sum(weights * (sample - new_mu)**2)
+                / denom)
+    return Updates({
+        mu: new_mu,
+        sigma: new_sigma})
+
+@rng_register
+def normal_params(node):
+    rstate, shape, mu, sigma = node.inputs
+    return [mu, sigma]
+
 
 
 # ---------
