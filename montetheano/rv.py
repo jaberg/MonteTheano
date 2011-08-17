@@ -29,7 +29,10 @@ class RV(object):
     as a Random Variable with a dirac density. This justifies sample(3) -> 3 for example,
     because 3 is taken to represent a dirac density over the 3 object.
 
-    This RV corresponds to a node in a directed graphical model.
+    A non-RV is sometimes treated as a sample from an 'un-normalized' distribution. This is
+    convenientin order to do maximum-likelihood estimation in Bayesian models.
+
+    This RV class corresponds to a node in a directed graphical model.
     """
 
     def sample(self, N):

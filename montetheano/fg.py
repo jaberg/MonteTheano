@@ -14,10 +14,6 @@ class Updates(dict):
 
 
 class FG_node(object):
-    def __init__(self, rv):
-        self.rv = rv
-        self.neibs = rv.params() + rv.clients()
-
     def neibs_except(self, skip):
         return [n for n in self.neibs if n is not skip]
 
@@ -96,13 +92,16 @@ class Particles(FG_message):
         if isinstance(other, Normal):
             return Particles(
                     particles,
-                    weights * other.pdf(particles)
+                    weights * other.pdf(particles))
         raise TypeError(other)
 
 
 class FG_var(FG_node):
     """
     """
+    def __init__(self, neibs):
+        self.neibs = neibs
+
     def message_to(self, dest, messages):
         """
         Return the product of messages from not-dest to self
@@ -122,6 +121,35 @@ class FG_fun(FG_node):
 
         messages: dict FG_var -> FG_message
         """
+
+class FG_NormalPotential(FG_fun):
+    def __init__(self, mu, sigma, x):
+        self.mu = mu
+        self.sigma = sigma
+        self.x = x
+        self.neibs = [mu, sigma, x]
+
+    def message_to(self, dest, messages):
+        # f(mu, sigma, x) g(mu), h(sigma) i(x)
+        m_mu = messages[(self.mu, self)]
+        m_sigma = messages[(self.sigma, self)]
+        m_x = messages[(self.x, self)]
+        if dest is mu:
+            # \sum_{sigma, x} f(mu, sigma, x) h(sigma) i(x)
+            if isinstance(m_sigma, FG_1):
+                # \sum_{sigma, x} f(mu, sigma, x) i(x)
+                # \sum_{sigma, x} exp(-.5 (\mu-x)^2/\sigma^2)/(\sqrt{2 pi} \sigma)
+                #                 i(x)
+                if isinstance(m_x, Particles):
+                    # i(x) = \sum_i w_i \dirac(x_i)
+                    #
+                    # \sum_{sigma, x} f(mu, sigma, x) i(x)
+                    # \sum_{sigma, i} w_i exp(-.5 (\mu-x_i)^2/\sigma^2)/(\sqrt{2 pi} \sigma)
+                    #                 w_i
+            else:
+                raise NotImplementedError()
+
+
 
 
 def bp(edges, schedule):
@@ -167,7 +195,7 @@ def posteriors(rvs, observations):
 
     raise NotImplementedError()
 
-def maximum_likelihood(observations):
+def posterior_modes(observations, algo='bp'):
     """
     observations: a dictionary whose keys are random variables and whose values are
                   obeservations of those random variables.
@@ -175,4 +203,7 @@ def maximum_likelihood(observations):
     returns: Updates for the maximum likelihood estimates for all shared variables affecting the
         likelihood of these observations.
     """
+    if algo
+
+    # This method works by max-product belief propagation
 
