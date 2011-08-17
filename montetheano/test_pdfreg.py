@@ -4,8 +4,10 @@ import numpy
 import theano
 from theano import tensor
 
-from .pdfreg import pdf
+from pdfreg import pdf
 
+from for_theano import where
+from gmm import AdaptiveParzen, gauss_mixture
 
 def SRNG(seed=2345):
     return tensor.shared_randomstreams.RandomStreams(seed)
@@ -52,8 +54,19 @@ def test_normal_w_params():
 
 
 def test_normal_nonscalar():
-    raise NotImplementedError()
+    s_rng = SRNG()
+    n = s_rng.normal()
 
+    data = numpy.asarray([1, 2, 3, 4, 5])
+    p_data = pdf(n, data)
+
+    f = theano.function([], [p_data])
+
+    pvals = f()
+    targets = numpy.exp(-0.5 * (data**2)) / numpy.sqrt(2*numpy.pi)
+
+    assert numpy.allclose(pvals,targets), (pvals, targets)
+    
 
 def test_normal_w_broadcasting():
     raise NotImplementedError()
@@ -124,7 +137,7 @@ def test_likelihood_visually():
 
 
     rv_llr_good = gauss_mixture(s_rng, mu=mu_llr_good, sigma=sigma_llr_good)
-    self.sample_llr = s_rng.normal(mean=-4, std=2, size=(5,))
+    self.sample_llr = s_rng.normal(avg=-4, std=2, size=(5,))
 
     self.sample_llr_logprob = log_density(
             self.sample_llr, rv_llr_good)
@@ -145,3 +158,5 @@ def test_likelihood_visually():
         import matplotlib.pyplot as plt
         plt.scatter(r[:, 0], r[:, 1])
         plt.show()
+
+test_normal_nonscalar()
