@@ -1,256 +1,15 @@
 """
+Math for various distributions.
+
 """
 import __builtin__
 import copy
-
 import numpy
-
 import theano
 from theano import tensor
-
 from for_theano import elemwise_cond
 from for_theano import ancestors
-from pdfreg import log_pdf, is_random_var, full_log_likelihood
-
-class Updates(dict):
-    def __add__(self, other):
-        rval = Updates(self)
-        rval += other  # see: __iadd__
-        return rval
-    def __iadd__(self, other):
-        d = dict(other)
-        for k,v in d.items():
-            if k in self:
-                raise KeyError()
-
-            self[k] = v
-
-def rv_dist_name(rv):
-    try:
-        return rv.owner.op.dist_name
-    except AttributeError:
-        try:
-            return rv.owner.op.fn.__name__
-        except AttributeError:
-            raise TypeError('rv not recognized as output of RandomFunction')
-
-class RandomStreams(object):
-
-    samplers = {}
-    pdfs = {}
-    ml_handlers = {}
-    params_handlers = {}
-    local_proposals = {}
-
-    def __init__(self, seed):
-        self.state_updates = []
-        self.default_instance_seed = seed
-        self.seed_generator = numpy.random.RandomState(seed)
-        self.default_updates = {}
-
-    def shared(self, val, **kwargs):
-        rval = theano.shared(val, **kwargs)
-        return rval
-
-    def sharedX(self, val, **kwargs):
-        rval = theano.shared(
-                numpy.asarray(val, dtype=theano.config.floatX),
-                **kwargs)
-        return rval
-
-    def new_shared_rstate(self):
-        seed = int(self.seed_generator.randint(2**30))
-        rval = theano.shared(numpy.random.RandomState(seed))
-        return rval
-
-    def add_default_update(self, used, recip, new_expr):
-        if used not in self.default_updates:
-            self.default_updates[used] = {}
-        self.default_updates[used][recip] = new_expr
-        used.update = (recip, new_expr) # necessary?
-        recip.default_update = new_expr
-        self.state_updates.append((recip, new_expr))
-
-    def sample(self, dist_name, *args, **kwargs):
-        handler = self.samplers[dist_name]
-        out = handler(self, *args, **kwargs)
-        return out
-
-    def seed(self, seed=None):
-        """Re-initialize each random stream
-
-        :param seed: each random stream will be assigned a unique state that depends
-        deterministically on this value.
-
-        :type seed: None or integer in range 0 to 2**30
-
-        :rtype: None
-        """
-        if seed is None:
-            seed = self.default_instance_seed
-
-        seedgen = numpy.random.RandomState(seed)
-        for old_r, new_r in self.state_updates:
-            old_r_seed = seedgen.randint(2**30)
-            old_r.set_value(numpy.random.RandomState(int(old_r_seed)),
-                    borrow=True)
-
-    def pdf(self, rv, sample, **kwargs):
-        """
-        Return the probability (density) that random variable `rv`, returned by
-        a call to one of the sampling routines of this class takes value `sample`
-        """
-        if rv.owner:
-            dist_name = rv_dist_name(rv)
-            pdf = self.pdfs[dist_name]
-            return pdf(rv.owner, sample, kwargs)
-        else:
-            raise TypeError('rv not recognized as output of RandomFunction')
-
-    def ml(self, rv, sample, weights=None):
-        """
-        Return an Updates object mapping distribution parameters to expressions
-        of their maximum likelihood values.
-        """
-        if rv.owner:
-            dist_name = rv_dist_name(rv)
-            pdf = self.ml_handlers[dist_name]
-            return pdf(rv.owner, sample, weights=weights)
-        else:
-            raise TypeError('rv not recognized as output of RandomFunction')
-
-    def params(self, rv):
-        """
-        Return an Updates object mapping distribution parameters to expressions
-        of their maximum likelihood values.
-        """
-        if rv.owner:
-            return self.params_handlers[rv_dist_name(rv)](rv.owner)
-        else:
-            raise TypeError('rv not recognized as output of RandomFunction')
-
-    def local_proposal(rv, sample, **kwargs):
-        """
-        Return the probability (density) that random variable `rv`, returned by
-        a call to one of the sampling routines of this class takes value `sample`
-        """
-        raise NotImplementedError()
-
-    #
-    # N.B. OTHER METHODS (samplers) ARE INSTALLED HERE BY
-    # - register_sampler
-    # - rng_register
-    #
-
-def pdf(rv, sample):
-    return rv.rstreams.pdf(rv, sample)
-
-
-def ml_updates(rv, sample, weights=None):
-    return rv.rstreams.ml_updates(rv, sample, weights=weights)
-
-
-def params(rv):
-    return rv.rstreams.params(rv)
-
-def register_sampler(dist_name, f):
-    """
-    Inject a sampling function into RandomStreams for the distribution with name
-    f.__name__
-    """
-    # install an instancemethod on the RandomStreams class
-    # that is a shortcut for something like
-    # self.sample('uniform', *args, **kwargs)
-
-    def sampler(self, *args, **kwargs):
-        return self.sample(dist_name, *args, **kwargs)
-    setattr(RandomStreams, dist_name, sampler)
-
-    if dist_name in RandomStreams.samplers:
-        # TODO: allow for multiple handlers?
-        raise KeyError(dist_name)
-    RandomStreams.samplers[dist_name] = f
-    return f
-
-
-def register_pdf(dist_name, f):
-    if dist_name in RandomStreams.pdfs:
-        # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.pdfs[dist_name])
-    RandomStreams.pdfs[dist_name] = f
-    return f
-
-
-def register_ml(dist_name, f):
-    if dist_name in RandomStreams.ml_handlers:
-        # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.ml_handlers[dist_name])
-    RandomStreams.ml_handlers[dist_name] = f
-    return f
-
-
-def register_params(dist_name, f):
-    if dist_name in RandomStreams.params_handlers:
-        # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.params_handlers[dist_name])
-    RandomStreams.params_handlers[dist_name] = f
-    return f
-
-
-def rng_register(f):
-    if f.__name__.endswith('_sampler'):
-        dist_name = f.__name__[:-len('_sampler')]
-        return register_sampler(dist_name, f)
-
-    elif f.__name__.endswith('_pdf'):
-        dist_name = f.__name__[:-len('_pdf')]
-        return register_pdf(dist_name, f)
-
-    elif f.__name__.endswith('_ml'):
-        dist_name = f.__name__[:-len('_ml')]
-        return register_ml(dist_name, f)
-
-    elif f.__name__.endswith('_params'):
-        dist_name = f.__name__[:-len('_params')]
-        return register_params(dist_name, f)
-
-    else:
-        raise ValueError("function name suffix not recognized", f.__name__)
-
-
-class ClobberContext(object):
-    def __enter__(self):
-        not hasattr(self, 'old')
-        self.old = {}
-        for name in self.clobber:
-            if hasattr(__builtin__, name):
-                self.old[name] = getattr(__builtin__, name)
-            if hasattr(self.obj, name):
-                setattr(__builtin__, name, getattr(self.obj, name))
-        return self.obj
-
-    def __exit__(self, e_type, e_val, e_traceback):
-        for name in self.clobber:
-            if name in self.old:
-                setattr(__builtin__, name, self.old[name])
-            elif hasattr(__builtin__, name):
-                delattr(__builtin__, name)
-        del self.old
-
-
-class srng_globals(ClobberContext):
-    def __init__(self, obj):
-        if isinstance(obj, int):
-            self.obj = RandomStreams(23424)
-        else:
-            self.obj = obj
-        self.clobber = self.obj.samplers.keys() + ['pdf']
-
-
-#####################
-# Stock distributions
-#####################
-
+from rstreams import rng_register
 
 # -------
 # Uniform
@@ -266,14 +25,12 @@ def uniform_sampler(rstream, low=0.0, high=1.0, shape=None, ndim=None, dtype=Non
 
 
 @rng_register
-def uniform_pdf(node, sample, kw):
-    # make sure that the division is done at least with float32 precision
-    one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+def uniform_lpdf(node, sample, kw):
     rstate, shape, low, high = node.inputs
     rval = elemwise_cond(
-        0,                sample < low,
-        one / (high-low), sample <= high,
-        0)
+        numpy.array(float('-inf')), sample < low,
+        -tensor.log(high-low), sample <= high,
+        numpy.array(float('-inf')))
     return rval
 
 @rng_register
@@ -306,13 +63,13 @@ def normal_sampler(rstream, mu=0.0, sigma=1.0, shape=None, ndim=0, dtype=None):
 
 
 @rng_register
-def normal_pdf(node, sample, kw):
+def normal_lpdf(node, sample, kw):
     # make sure that the division is done at least with float32 precision
     one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
     rstate, shape, mu, sigma = node.inputs
     Z = tensor.sqrt(2 * numpy.pi * sigma**2)
     E = 0.5 * ((mu - sample)/(one*sigma))**2
-    return tensor.exp(-E) / Z
+    return - E - tensor.log(Z)
 
 @rng_register
 def normal_ml(node, sample, weights):
@@ -662,3 +419,118 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
     
     
+
+
+
+
+# UNVERIFIED
+class Normal(RV):
+    def __init__(self, mu, sigma):
+        self.mu = as_rv_or_sharedX(mu)
+        self.sigma = as_rv_or_sharedX(sigma)
+
+    def sample(self, draw_shape, rstreams, sample):
+        mu = sample(self.mu, ())
+        sigma = sample(self.sigma, ())
+        return rstreams.normal(draw_shape, mu, sigma)
+
+    def pdf(self, x):
+        one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+        rstate, shape, mu, sigma = node.inputs
+        Z = tensor.sqrt(2 * numpy.pi * sigma**2)
+        E = 0.5 * ((mu - x)/(one*sigma))**2
+        return tensor.exp(-E) / Z
+
+    def params(self):
+        return [i for i in [self.mu, self.sigma]
+                if isinstance(i, theano.Variable)]
+
+    def posterior(self, x, weights=None):
+        """
+        Message-passing required.
+        """
+        raise NotImplementedError() 
+
+    def maximum_likelihood(self, x, weights=None):
+        eps = 1e-8
+        if weights is None:
+            new_mu = tensor.mean(sample)
+            new_sigma = tensor.std(sample)
+
+        else:
+            denom = tensor.maximum(tensor.sum(weights), eps)
+            new_mu = tensor.sum(sample*weights) / denom
+            new_sigma = tensor.sqrt(
+                    tensor.sum(weights * (sample - new_mu)**2)
+                    / denom)
+        rval = Updates()
+        if self.mu in self.params():
+            rval[self.mu] = new_mu
+        if self.sigma in self.params():
+            rval[self.sigma] = new_sigma
+        return rval
+
+
+# UNVERIFIED
+class Categorical(RV):
+    def __init__(self, weights):
+        self.weights = weights
+
+    def sample(self, N, rstreams):
+        raise NotImplementedError()
+
+    def pdf(self, x):
+        raise NotImplementedError()
+
+
+# UNVERIFIED
+class List(RV):
+    def __init__(self, components):
+        self.components = components
+
+    def __getitem__(self, idx):
+        if isinstance(idx, Categorical):
+            return Mixture(Categorical.weights, self.components)
+        else:
+            return self.components[idx]
+
+
+# UNVERIFIED
+class Dict(RV):
+    def __init__(self, **kwargs):
+        self.components = kwargs
+
+    def sample(self, draw_shape, rstreams, memo):
+        raise NotImplementedError()
+
+    def pdf(self, X):
+
+
+# UNVERIFIED
+class Mixture(RV):
+    def __init__(self, weights, components):
+        self.weights = weights
+        self.components = components
+
+    def sample(self, draw_shape, rstreams, memo):
+        raise NotImplementedError()
+
+    def pdf(self, x):
+        raise NotImplementedError()
+
+
+# UNVERIFIED
+@register_pdf
+def binomial(rv, sample, kw):
+    if (rv.owner
+            and isinstance(rv.owner.op, tensor.raw_random.RandomFunction)
+            and rv.owner.op.fn == numpy.random.RandomState.binomial):
+        random_state, size, n, p = rv.owner.inputs
+
+        # for the n > 1 the "choose" operation is required
+        # TODO assert n == 1
+        
+        return tensor.switch(tensor.eq(sample, 1.), tensor.log(p), tensor.log(1. - p))
+    else:
+        raise WrongPdfHandler()
+

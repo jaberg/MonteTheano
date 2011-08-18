@@ -41,3 +41,19 @@ def test_gaussian_tied():
     map_y = post[y]
 
     f = theano.function([], map_y)
+
+
+
+def test_rbm():
+
+    n_vis = 6
+    n_hid = 5
+
+    w = tensor.matrix(shape=(n_vis, n_hid))
+
+    v = bernoulli(n_vis)
+    h = bernoulli(n_hid)
+    E = tensor.dot(v, w, h)
+
+    # E is now a random variable in a directed graphical model
+    # TODO: how do we get from here to a gibbs sampler in easy logical steps?

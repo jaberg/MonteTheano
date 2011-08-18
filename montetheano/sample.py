@@ -1,4 +1,7 @@
+"""
+Algorithms for drawing samples by MCMC
 
+"""
 
 
 
