@@ -2,6 +2,7 @@ import copy
 import numpy
 import theano
 from theano import tensor
+from theano.gof import graph
 
 def as_variable(thing):
     if isinstance(thing, theano.Variable):
@@ -10,6 +11,45 @@ def as_variable(thing):
         return thing
     #TODO: why there is no theano.constant??
     return theano.shared(thing)
+
+class Bincount(theano.Op):
+    """
+    Map a vector to an integer vector containing the sorted positions of
+    non-zeros in the argument.
+    """
+    #TODO: check to see if numpy.bincount supports minlength argument
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def make_node(self, x, weights=1, minlength=0):
+        x = tensor.as_tensor_variable(x)
+        weights = tensor.as_tensor_variable(weights)
+        minlength = tensor.as_tensor_variable(minlength)
+        if x.ndim != 1:
+            raise NotImplementedError( x)
+        if 'int' not in str(x.dtype):
+            raise TypeError('bincount requires integer argument x', x)
+        # TODO: check that weights and minlength are ok
+        return theano.gof.Apply(self,
+                [x, weights, minlength],
+                [tensor.lvector()])
+
+    def perform(self, node, inputs, outstorage):
+        x, weights, minlength = inputs
+        if weights == 1:
+            rval = numpy.bincount(x)#, minlength=minlength)
+        else:
+            rval = numpy.bincount(*inputs)
+        if len(rval) < minlength:
+            tmp = numpy.zeros((minlength,), dtype=rval.dtype)
+            tmp[:len(rval)] = rval
+            rval = tmp
+        outstorage[0][0] = rval
+
+bincount = Bincount()
 
 
 class Where(theano.Op):
@@ -64,7 +104,7 @@ def elemwise_cond(*args):
 
 class LazySwitch(theano.gof.PureOp):
     """
-    XXX
+    lazy_switch(which_case, case0, case1, case2, case3, ...)
 
     """
 
@@ -112,3 +152,24 @@ class LazySwitch(theano.gof.PureOp):
         return thunk
 
 lazy_switch = LazySwitch()
+
+
+def ancestors(variable_list, blockers = None):
+    """Return the variables that contribute to those in variable_list (inclusive).
+
+    :type variable_list: list of `Variable` instances
+    :param variable_list:
+        output `Variable` instances from which to search backward through owners
+    :rtype: list of `Variable` instances
+    :returns:
+        all input nodes, in the order found by a left-recursive depth-first search
+        started at the nodes in `variable_list`.
+
+    """
+    def expand(r):
+        if r.owner and (not blockers or r not in blockers):
+            l = list(r.owner.inputs)
+            l.reverse()
+            return l
+    dfs_variables = graph.stack_search(graph.deque(variable_list), expand, 'dfs')
+    return dfs_variables
