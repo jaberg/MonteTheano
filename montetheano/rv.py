@@ -1,5 +1,8 @@
+"""
+Functions for operating on random variables.
+"""
 from for_theano import ancestors
-from rstreams import randomstate_types
+from rstreams import randomstate_types, lpdf
 from shallow_clone import clone_keep_replacements
 
 
@@ -36,12 +39,8 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
-def lpdf(rv, sample):
-    if not is_raw_rv(rv):
-        #TODO: infer from the ancestors of v what distribution it
-        #      has.
-        raise NotImplementedError()
-
+def condition(rvs, observations):
+    raise NotImplementedError()
 
 def log_density(assignment, given):
     """
@@ -68,9 +67,18 @@ def log_density(assignment, given):
         for rv, sample in assignment.items()])
 
     if givens:
-        # gulp...
-        raise NotImplementedError()
-
+        rvs = assignment.keys()
+        #TODO: this is not ok for undirected models
+        #      we need to be able to let condition introduce joint
+        #      dependencies somehow.
+        #      The trouble is that lpdf wants to get the pdfs one variable at a
+        #      time.  That makes sense for directed models, but not for
+        #      undirected ones.
+        new_rvs = condition(rvs, givens)
+        return log_density(
+                [(new_rv, assignment[rv])
+                    for (new_rv, rv) in zip(new_rvs, rvs)],
+                given={})
     else:
         pdfs = [lpdf(rv, sample) for rv, sample in assignment.items()]
         lik = tensor.add(*[tensor.sum(p) for p in pdfs])
@@ -83,6 +91,7 @@ def log_density(assignment, given):
                 replacements=assignment)
         cloned_lik, = cloned_outputs
         return cloned_lik
+
 
 def energy(assignment, given):
     """
@@ -98,7 +107,11 @@ def energy(assignment, given):
     The output from this function may be a random variable, if not all sources
     of randomness are removed by the assignment and the given.
     """
-    raise NotImplementedError()
+    try:
+        return -log_density(assignment, given)
+    except:
+        # get the log_density up to an additive constant
+        raise NotImplementedError()
 
 
 def full_log_likelihood(observations):
