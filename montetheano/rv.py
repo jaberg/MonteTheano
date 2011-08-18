@@ -36,42 +36,72 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
+def lpdf(rv, sample):
+    if not is_raw_rv(rv):
+        #TODO: infer from the ancestors of v what distribution it
+        #      has.
+        raise NotImplementedError()
 
-def density(assignment, observations):
+
+def log_density(assignment, given):
     """
-    Return P(rv0=sample | observations)
+    Return log(P(rv0=sample | given))
 
     assignment: rv0=val0, rv1=val1, ...
-    observations: var0=v0, var1=v1, ...
+    given: var0=v0, var1=v1, ...
 
     Each of val0, val1, ... v0, v1, ... is supposed to represent an identical
     number of draws from a distribution.  This function returns the real-valued
     density for each one of those draws.
 
     The output from this function may be a random variable, if not all sources
-    of randomness are removed by the assignment and the observations.
+    of randomness are removed by the assignment and the given.
     """
-    raise NotImplementedError()
 
+    for rv in assignment.keys():
+        if not is_rv(rv):
+            raise ValueError('non-random var in assignment key', rv)
 
-def energy(assignment, observations):
+    # Cast assignment elements to the right kind of thing
+    assignment = dict([
+        (rv, rv.type.filter(sample, allow_downcast=True))
+        for rv, sample in assignment.items()])
+
+    if givens:
+        # gulp...
+        raise NotImplementedError()
+
+    else:
+        pdfs = [lpdf(rv, sample) for rv, sample in assignment.items()]
+        lik = tensor.add(*[tensor.sum(p) for p in pdfs])
+        dfs_variables = ancestors([lik], blockers=assignment.keys())
+        frontier = [r for r in dfs_variables
+                if r.owner is None or r in assignment.keys()]
+        cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [lik],
+                # Benjamin - Why make new dict?
+                # replacements=dict(observations.items()))
+                replacements=assignment)
+        cloned_lik, = cloned_outputs
+        return cloned_lik
+
+def energy(assignment, given):
     """
-    Return -log(P(rv0=sample | observations)) +- const
+    Return -log(P(rv0=sample | given)) +- const
 
     assignment: rv0=val0, rv1=val1, ...
-    observations: var0=v0, var1=v1, ...
+    given: var0=v0, var1=v1, ...
 
     Each of val0, val1, ... v0, v1, ... is supposed to represent an identical
     number of draws from a distribution.  This function returns the real-valued
     density for each one of those draws.
 
     The output from this function may be a random variable, if not all sources
-    of randomness are removed by the assignment and the observations.
+    of randomness are removed by the assignment and the given.
     """
     raise NotImplementedError()
 
 
-def full_log_likelihood(observations, keep_unobserved=False):
+def full_log_likelihood(observations):
     """
     \sum_i log(P(observations)) given that observations[i] ~ RV, iid.
 
@@ -82,30 +112,10 @@ def full_log_likelihood(observations, keep_unobserved=False):
         rv_observations[i] is the i'th observation or RV
 
     """
+    rval = log_density(observations, {})
 
-    RVs = [v for v in ancestors(observations.keys()) if is_random_var(v)]
-    for rv in RVs:
-        if rv not in observations:
-            if keep_unobserved:
-                observations[rv] = rv
-            else:
-                raise ValueError('missing observations')
+    if is_rv(rval):
+        raise ValueError('insufficient information for full_likelihood')
 
-    # Ensure we can work on tensor variables:
-    observations = dict([(rv, tensor.as_tensor_variable(obs).astype(rv.dtype))
-        for rv, obs in observations.items()])
-
-    pdfs = [log_pdf(rv, obs) for rv,obs in observations.items()]
-
-    lik = tensor.add(*[tensor.sum(p) for p in pdfs])
-
-    dfs_variables = ancestors([lik], blockers=RVs)
-    frontier = [r for r in dfs_variables if r.owner is None or r in RVs]
-
-    # Benjamin - why not use observations here?
-    cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [lik],
-            replacements=dict(observations.items()))
-
-    cloned_lik, = cloned_outputs
-    return cloned_lik
+    return rval
 

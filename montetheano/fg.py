@@ -1,3 +1,7 @@
+"""
+TODO: implement BP in this file. Current contents probably should go.
+"""
+
 
 class Updates(dict):
     def __add__(self, other):

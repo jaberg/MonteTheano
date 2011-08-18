@@ -16,7 +16,6 @@ pdfs = {}
 ml_handlers = {}
 params_handlers = {}
 local_proposals = {}
-clobber_symbols = ['pdf']
 
 
 def rv_dist_name(rv):
@@ -29,6 +28,7 @@ def rv_dist_name(rv):
             raise TypeError('rv not recognized as output of RandomFunction')
 
 class RandomStreams(ClobberContext):
+    clobber_symbols = ['pdf']
 
     def __init__(self, seed):
         self.state_updates = []
@@ -141,15 +141,16 @@ def register_sampler(dist_name, f):
     def sampler(self, *args, **kwargs):
         return self.sample(dist_name, *args, **kwargs)
     setattr(RandomStreams, dist_name, sampler)
+    RandomStreams.clobber_symbols.append(dist_name)
 
     if dist_name in RandomStreams.samplers:
         # TODO: allow for multiple handlers?
         raise KeyError(dist_name)
-    RandomStreams.samplers[dist_name] = f
+    samplers[dist_name] = f
     return f
 
 
-def register_pdf(dist_name, f):
+def register_lpdf(dist_name, f):
     if dist_name in RandomStreams.pdfs:
         # TODO: allow for multiple handlers?
         raise KeyError(dist_name, RandomStreams.pdfs[dist_name])
@@ -157,19 +158,21 @@ def register_pdf(dist_name, f):
     return f
 
 
+#TODO: think about what this function is supposed to do??
 def register_ml(dist_name, f):
-    if dist_name in RandomStreams.ml_handlers:
+    if dist_name in ml_handlers:
         # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.ml_handlers[dist_name])
-    RandomStreams.ml_handlers[dist_name] = f
+        raise KeyError(dist_name, ml_handlers[dist_name])
+    ml_handlers[dist_name] = f
     return f
 
 
+#TODO: think about what this function is supposed to do??
 def register_params(dist_name, f):
-    if dist_name in RandomStreams.params_handlers:
+    if dist_name in params_handlers:
         # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.params_handlers[dist_name])
-    RandomStreams.params_handlers[dist_name] = f
+        raise KeyError(dist_name, params_handlers[dist_name])
+    params_handlers[dist_name] = f
     return f
 
 
@@ -178,9 +181,9 @@ def rng_register(f):
         dist_name = f.__name__[:-len('_sampler')]
         return register_sampler(dist_name, f)
 
-    elif f.__name__.endswith('_pdf'):
-        dist_name = f.__name__[:-len('_pdf')]
-        return register_pdf(dist_name, f)
+    elif f.__name__.endswith('_lpdf'):
+        dist_name = f.__name__[:-len('_lpdf')]
+        return register_lpdf(dist_name, f)
 
     elif f.__name__.endswith('_ml'):
         dist_name = f.__name__[:-len('_ml')]

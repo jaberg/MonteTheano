@@ -177,11 +177,11 @@ def lognormal_sampler(s_rstate, mu=0.0, sigma=1.0, shape=None, ndim=None, dtype=
 
 
 @rng_register
-def lognormal_pdf(node, x, kw):
+def lognormal_lpdf(node, x, kw):
     r, shape, mu, sigma = node.inputs
     Z = sigma * x * numpy.sqrt(2 * numpy.pi)
     E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
-    return tensor.exp(-E)/Z
+    return -E - tensor.log(Z)
 
 
 # -----------
