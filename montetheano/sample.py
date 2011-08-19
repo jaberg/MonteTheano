@@ -2,29 +2,11 @@
 Algorithms for drawing samples by MCMC
 
 """
-
-
-def full_sample(s_rng, outputs ):
-    all_vars = ancestors(outputs)
-    assert outputs[0] in all_vars
-    RVs = [v for v in all_vars if is_random_var(v)]
-    rdict = dict([(v, v) for v in RVs])
-
-    if True:
-        # outputs is same
-        raise NotImplementedError()
-    elif isinstance(size, int):
-        # use scan
-        raise NotImplementedError()
-    else:
-        n_steps = theano.tensor.prod(size)
-        # use scan for n_steps
-        #scan_outputs = ...
-        outputs = scan_outputs[:len(outputs)]
-        s_RVs = scan_outputs[len(outputs):]
-        # reshape so that leading dimension goes from n_steps -> size
-        raise NotImplementedError()
-    return outputs, rdict
+import numpy
+import theano
+from theano import tensor
+from for_theano import ancestors
+from rv import is_raw_rv, full_log_likelihood
 
 # Sample the generative model and return "outputs" for cases where "condition" is met.
 # If no condition is given, it just samples from the model
@@ -64,7 +46,7 @@ def mh_sample(s_rng, outputs, observations = {}):
     all_vars = ancestors(list(outputs) + list(observations.keys()))
     for o in observations:
         assert o in all_vars
-        if not is_random_var(o):
+        if not is_raw_rv(o):
             raise TypeError(o)
 
     free_RVs = [v for v in RVs if v not in observations]
@@ -73,11 +55,11 @@ def mh_sample(s_rng, outputs, observations = {}):
     # free_RVs_state = [theano.shared(v) for v in free_RVs]
     # TODO: how do we infer shape?
     free_RVs_state = [theano.shared(0.5*numpy.ones(shape=())) for v in free_RVs]
-    free_RVs_prop = [s_rng.normal(size = (), std = .1) for v in free_RVs]
+    free_RVs_prop = [s_rng.normal(0, .1) for v in free_RVs]
 
     log_likelihood = theano.shared(numpy.array(float('-inf')))
 
-    U = s_rng.uniform(size=(), low=0, high=1.0)
+    U = s_rng.uniform(low=0, high=1.0)
 
     # TODO: can we pre-generate the noise
     def mcmc(ll, *frvs):
@@ -114,19 +96,19 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     
     for o in observations:
         assert o in all_vars
-        if not is_random_var(o):
+        if not is_raw_rv(o):
             raise TypeError(o)
 
-    RVs = [v for v in all_vars if is_random_var(v)]
+    RVs = [v for v in all_vars if is_raw_rv(v)]
 
     free_RVs = [v for v in RVs if v not in observations]
     
     free_RVs_state = [theano.shared(0.5*numpy.ones(shape=())) for v in free_RVs]    
-    free_RVs_prop = [s_rng.normal(size = (), std = 1) for v in free_RVs]    
+    free_RVs_prop = [s_rng.normal(0, 1) for v in free_RVs]    
     
     log_likelihood = theano.shared(numpy.array(float('-inf')))
     
-    U = s_rng.uniform(size=(), low=0, high=1.0)
+    U = s_rng.uniform(low=0, high=1.0)
     
     epsilon = numpy.sqrt(2*0.03)
     def mcmc(ll, *frvs):

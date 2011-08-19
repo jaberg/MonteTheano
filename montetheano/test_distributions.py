@@ -2,14 +2,14 @@ import unittest
 import numpy
 
 import theano
-
 from theano import tensor
+
 from rstreams import RandomStreams
 import distributions
 from sample import rejection_sample, mh_sample, hybridmc_sample
-import pylab
-
 from rv import log_density, full_log_likelihood
+
+import pylab
 
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
@@ -17,9 +17,9 @@ class TestBasicBinomial(unittest.TestCase):
 
         p = 0.5
         
-        self.A = s_rng.binomial((), 1, p)
-        self.B = s_rng.binomial((), 1, p)
-        self.C = s_rng.binomial((), 1, p)
+        self.A = s_rng.binomial(1, p)
+        self.B = s_rng.binomial(1, p)
+        self.C = s_rng.binomial(1, p)
         
         self.D = self.A+self.B+self.C
         
@@ -61,7 +61,7 @@ class TestCoin(unittest.TestCase):
         s_rng = self.s_rng = RandomStreams(23424)
 
         self.fair_prior = 0.999
-        self.fair_coin = s_rng.binomial((), 1, self.fair_prior)
+        self.fair_coin = s_rng.binomial(1, self.fair_prior)
         
         make_coin = lambda x: s_rng.binomial((4,), 1, x)    
         self.coin = make_coin(tensor.switch(self.fair_coin > 0.5, 0.5, 0.95))
@@ -81,7 +81,7 @@ class TestCoin2(): #unittest.TestCase):
         s_rng = self.s_rng = RandomStreams(23424)
 
         self.repetitions = 100        
-        self.coin_weight = s_rng.uniform((), low=0, high=1)
+        self.coin_weight = s_rng.uniform(low=0, high=1)
         self.coin = s_rng.binomial((self.repetitions,), 1, self.coin_weight)
         
     def test_tt(self):
@@ -102,9 +102,9 @@ class TestGMM(unittest.TestCase):
         self.m2 = tensor.scalar() 
         self.v = tensor.scalar() 
         
-        self.C = s_rng.binomial((), 1, p)
+        self.C = s_rng.binomial(1, p)
         self.m = tensor.switch(self.C, self.m1, self.m2)
-        self.D = s_rng.normal((), self.m, self.v)        
+        self.D = s_rng.normal(self.m, self.v)        
     
         self.D_data = tensor.as_tensor_variable([1, 1.2, 3, 3.4])
         
@@ -136,8 +136,8 @@ class TestHierarchicalNormal(): #unittest.TestCase):
         c = 1.5
         d = 2.0
 
-        self.M = s_rng.normal((), a, b)
-        self.V = s_rng.normal((), c, d)
+        self.M = s_rng.normal(a, b)
+        self.V = s_rng.normal(c, d)
         self.V_ = abs(self.V) + .1
         self.X = s_rng.normal((4,), self.M, self.V_)
 
@@ -188,20 +188,20 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(3424)
 
-        self.W1 = s_rng.normal((), 0, 4)
-        self.W2 = s_rng.normal((), 0, 4)
+        self.W1 = s_rng.normal(0, 4)
+        self.W2 = s_rng.normal(0, 4)
         
         self.x = tensor.matrix('x')
         # self.y = tensor.nnet.sigmoid(tensor.dot(self.x, self.W) + self.b)
         self.y = tensor.nnet.sigmoid(self.x[:,0]*self.W1 + self.x[:,1]*self.W2)
 
-        self.t = s_rng.binomial((4,1), p=self.y)
+        self.t = s_rng.binomial(shape=(4,), p=self.y)
         
         self.X_data = numpy.asarray([[-1.5, -0.4, 1.3, 2.2],[-1.1, -2.2, 1.3, 0]], dtype=theano.config.floatX).T 
         self.Y_data = numpy.asarray([1., 1., 0., 0.], dtype=theano.config.floatX)
 
     def test_likelihood(self):            
-        RVs = dict([(self.t, self.Y_data)])
+        RVs = dict([(self.t, self.Y_data)])                
         lik = log_density(RVs, {})
         
         givens = dict([(self.x, self.X_data)])

@@ -17,7 +17,7 @@ from rstreams import rng_register
 
 
 @rng_register
-def uniform_sampler(rstream, shape=None, low=0.0, high=1.0, ndim=None, dtype=None):
+def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, shape=None, dtype=theano.config.floatX):
     rstate = rstream.new_shared_rstate()
     new_rstate, out = tensor.raw_random.uniform(rstate, shape, low, high, ndim, dtype)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -51,15 +51,13 @@ def uniform_params(node):
 
 
 @rng_register
-def normal_sampler(rstream, shape=None, mu=0.0, sigma=1.0, ndim=0, dtype=None):
+def normal_sampler(rstream, mu=0.0, sigma=1.0, shape=None, ndim=0, dtype=theano.config.floatX):
     if not isinstance(mu, theano.Variable):
         mu = tensor.shared(numpy.asarray(mu, dtype=theano.config.floatX))
     if not isinstance(sigma, theano.Variable):
         sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
 
-    print rstate, shape, mu, sigma, dtype
-    
     new_rstate, out = tensor.raw_random.normal(rstate, shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
@@ -103,7 +101,7 @@ def normal_params(node):
 # ---------
 
 @rng_register
-def binomial_sampler(rstream, shape=None, n=1, p=0.5, ndim=0, dtype=None):
+def binomial_sampler(rstream, n=1, p=0.5, ndim=0, shape=None, dtype=theano.config.floatX):
     if not isinstance(n, theano.Variable):
         n = tensor.shared(numpy.asarray(n, dtype=int))
     if not isinstance(p, theano.Variable):
@@ -114,8 +112,8 @@ def binomial_sampler(rstream, shape=None, n=1, p=0.5, ndim=0, dtype=None):
     return out
 
 @rng_register
-def binomial_lpdf(rv, sample, kw):
-    random_state, size, n, p = rv.owner.inputs
+def binomial_lpdf(node, sample, kw):
+    random_state, size, n, p = node.inputs
 
     # for the n > 1 the "choose" operation is required
     # TODO assert n == 1
@@ -133,7 +131,7 @@ def binomial_params(node):
 
 
 @rng_register
-def lognormal_sampler(s_rstate, mu=0.0, sigma=1.0, shape=None, ndim=None, dtype=None):
+def lognormal_sampler(s_rstate, mu=0.0, sigma=1.0, shape=None, ndim=None, dtype=theano.config.floatX):
     """
     Sample from a normal distribution centered on avg with
     the specified standard deviation (std).

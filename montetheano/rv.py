@@ -1,15 +1,16 @@
 """
 Functions for operating on random variables.
 """
+from theano import tensor
 from for_theano import ancestors, as_variable
-from rstreams import randomstate_types, lpdf
+import rstreams
 from shallow_clone import clone_keep_replacements
 
 
 def is_randomstate(var):
     """
     """
-    return isinstance(var.type, randomstate_types)
+    return isinstance(var.type, rstreams.randomstate_types)
 
 
 def is_rv(var, blockers=None):
@@ -17,10 +18,10 @@ def is_rv(var, blockers=None):
     Return True iff var is a random variable.
 
     A random variable is a variable with a randomstate object in its ancestors.
-    """
+    """    
     #TODO: could optimize by stopping the recusion as soon as a randomstate is
     #      found
-    return any(is_randomstate(v) for v in ancestors(var, blockers=blockers))
+    return any(is_randomstate(v) for v in ancestors([var], blockers=blockers))
 
 
 def is_raw_rv(var):
@@ -64,8 +65,25 @@ def condition(rvs, observations):
                 replacements=observations)
         return cloned_outputs
 
+# TODO: does this function belong here or in rstreams
+def lpdf(rv, sample, **kwargs):
+    """
+    Return the probability (density) that random variable `rv`, returned by
+    a call to one of the sampling routines of this class takes value `sample`
+    """
+    if not is_rv(rv):
+        raise TypeError('rv not recognized as a random variable', rv)
 
-def log_density(assignment, given):
+    if is_raw_rv(rv):
+        dist_name = rstreams.rv_dist_name(rv)
+        pdf = rstreams.pdfs[dist_name]
+        return pdf(rv.owner, sample, kwargs)
+    else:
+        #TODO: infer from the ancestors of v what distribution it
+        #      has.
+        raise NotImplementedError()
+
+def log_density(assignment, givens):
     """
     Return log(P(rv0=sample | given))
 
