@@ -58,14 +58,17 @@ def uniform_params(node):
 
 
 @rng_register
-def normal_sampler(rstream, mu=0.0, sigma=1.0, shape=None, ndim=0, dtype=theano.config.floatX):
+def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=0, dtype=None):
     if not isinstance(mu, theano.Variable):
         mu = tensor.shared(numpy.asarray(mu, dtype=theano.config.floatX))
     if not isinstance(sigma, theano.Variable):
         sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
 
-    new_rstate, out = tensor.raw_random.normal(rstate, shape, mu, sigma, dtype=dtype)
+    if isinstance(draw_shape, (list, tuple)):
+        draw_shape = tensor.stack(*draw_shape)
+
+    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -292,85 +295,3 @@ def dirichlet_lpdf(node, sample, kw):
     """
     raise NotImplementedError()
 
-
-# ----------
-# Undirected
-# ----------
-
-class Undirected(theano.Op):
-    def __init__(self, ops, n_inputs):
-        self.ops = ops
-        self.n_inputs = n_inputs
-    
-if 0:
-    # UNVERIFIED
-    class Normal(RV):
-        def __init__(self, mu, sigma):
-            self.mu = as_rv_or_sharedX(mu)
-            self.sigma = as_rv_or_sharedX(sigma)
-    
-        def sample(self, draw_shape, rstreams, sample):
-            mu = sample(self.mu, ())
-            sigma = sample(self.sigma, ())
-            return rstreams.normal(draw_shape, mu, sigma)
-    
-        def pdf(self, x):
-            one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
-            rstate, shape, mu, sigma = node.inputs
-            Z = tensor.sqrt(2 * numpy.pi * sigma**2)
-            E = 0.5 * ((mu - x)/(one*sigma))**2
-            return tensor.exp(-E) / Z
-    
-        def params(self):
-            return [i for i in [self.mu, self.sigma]
-                    if isinstance(i, theano.Variable)]
-    
-        def posterior(self, x, weights=None):
-            """
-            Message-passing required.
-            """
-            raise NotImplementedError() 
-    
-        def maximum_likelihood(self, x, weights=None):
-            eps = 1e-8
-            if weights is None:
-                new_mu = tensor.mean(sample)
-                new_sigma = tensor.std(sample)
-    
-            else:
-                denom = tensor.maximum(tensor.sum(weights), eps)
-                new_mu = tensor.sum(sample*weights) / denom
-                new_sigma = tensor.sqrt(
-                        tensor.sum(weights * (sample - new_mu)**2)
-                        / denom)
-            rval = Updates()
-            if self.mu in self.params():
-                rval[self.mu] = new_mu
-            if self.sigma in self.params():
-                rval[self.sigma] = new_sigma
-            return rval
-    
-    
-    # UNVERIFIED
-    class Categorical(RV):
-        def __init__(self, weights):
-            self.weights = weights
-    
-        def sample(self, N, rstreams):
-            raise NotImplementedError()
-    
-        def pdf(self, x):
-            raise NotImplementedError()
-    
-    
-    # UNVERIFIED
-    class List(RV):
-        def __init__(self, components):
-            self.components = components
-    
-        def __getitem__(self, idx):
-            if isinstance(idx, Categorical):
-                return Mixture(Categorical.weights, self.components)
-            else:
-                return self.components[idx]    
-    
