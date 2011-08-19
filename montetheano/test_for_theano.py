@@ -13,3 +13,6 @@ def test_infer_shape_shared_var():
     assert infer_shape(sv) == (3,)
     assert infer_shape(sv * 2 + 75) == (3,)
 
+def test_shape_infer_shape():
+    sv = theano.shared(numpy.asarray([2,3,5]))
+    assert infer_shape(sv.shape) == (1,)

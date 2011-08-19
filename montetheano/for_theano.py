@@ -221,6 +221,12 @@ def clone_get_equiv(i, o, replacements=None):
     return d
 
 
+def shape_infer_shape(self, node, ishapes):
+    return [(node.inputs[0].ndim,)]
+
+if not hasattr(theano.tensor.basic.Shape, 'infer_shape'):
+    theano.tensor.basic.Shape.infer_shape = shape_infer_shape
+
 def infer_shape_helper(v, assume_shared_size_fixed):
     if not isinstance(v.type, tensor.TensorType):
         return None
@@ -233,6 +239,8 @@ def infer_shape_helper(v, assume_shared_size_fixed):
         ishapes = [infer_shape_helper(i, assume_shared_size_fixed)
                 for i in v.owner.inputs]
         return v.owner.op.infer_shape(v.owner, ishapes)[0]
+
+
     if isinstance(v, theano.Constant):
         return v.data.shape
 
