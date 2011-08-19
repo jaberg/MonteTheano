@@ -219,3 +219,38 @@ def clone_get_equiv(i, o, replacements=None):
             d[output] = output.clone()
     
     return d
+
+
+def infer_shape_helper(v, assume_shared_size_fixed):
+    if not isinstance(v.type, tensor.TensorType):
+        return None
+
+    if v.owner:
+        if len(v.owner.outputs) > 1:
+            # which input is this,
+            # retrieve that shape from the op's return values
+            raise NotImplementedError()
+        ishapes = [infer_shape_helper(i, assume_shared_size_fixed)
+                for i in v.owner.inputs]
+        return v.owner.op.infer_shape(v.owner, ishapes)[0]
+    if isinstance(v, theano.Constant):
+        return v.data.shape
+
+    if isinstance(v, theano.compile.SharedVariable):
+        if assume_shared_size_fixed:
+            return v.get_value(borrow=True).shape
+        else:
+            raise ValueError('shared var')
+
+def infer_shape(v, assume_shared_size_fixed=True):
+    rval = infer_shape_helper(v, assume_shared_size_fixed)
+    if None is rval:
+        raise TypeError('some ancestor was not a TensorType var')
+    def as_int(o):
+        if hasattr(o, 'type'):
+            return int(o.data)
+        else:
+            return int(o)
+    return tuple([as_int(r) for r in rval])
+
+
