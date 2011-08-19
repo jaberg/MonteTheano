@@ -1,6 +1,7 @@
 """
 Misc utils
 """
+import __builtin__
 
 class ClobberContext(object):
     """
@@ -14,22 +15,22 @@ class ClobberContext(object):
     they will actually trump the object's own methods.
     """
     def __enter__(self):
-        not hasattr(self, 'old')
-        self.old = {}
+        assert not hasattr(self, '_clobbered_symbols')
+        self._clobbered_symbols = {}
         for name in self.clobber_symbols:
             if hasattr(__builtin__, name):
-                self.old[name] = getattr(__builtin__, name)
-            if hasattr(self.obj, name):
-                setattr(__builtin__, name, getattr(self.obj, name))
-        return self.obj
+                self._clobbered_symbols[name] = getattr(__builtin__, name)
+            if hasattr(self, name):
+                setattr(__builtin__, name, getattr(self, name))
+        return self
 
     def __exit__(self, e_type, e_val, e_traceback):
         for name in self.clobber_symbols:
-            if name in self.old:
-                setattr(__builtin__, name, self.old[name])
+            if name in self._clobbered_symbols:
+                setattr(__builtin__, name, self._clobbered_symbols[name])
             elif hasattr(__builtin__, name):
                 delattr(__builtin__, name)
-        del self.old
+        del self._clobbered_symbols
 
 
 class Updates(dict):

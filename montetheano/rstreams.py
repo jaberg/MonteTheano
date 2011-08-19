@@ -2,7 +2,6 @@
 Registry and definition for new-and-improved RandomStreams
 """
 
-import __builtin__
 import copy
 import numpy
 import theano

@@ -1,7 +1,7 @@
 import theano
+from rstreams import RandomStreams
+import distributions # triggers registry
 import rv
-from rv import Normal
-from fg import posterior_modes
 
 def test_gaussian_ml():
     """Maximum likelihood fitting of Gaussian"""
@@ -15,17 +15,21 @@ def test_gaussian_ml():
 
     f = theano.function([], ml_mu, ml_sigma)
 
+def test_dag_condition_top():
+    with RandomStreams(234) as _:
+        mu = normal(10, .1)
+        x = Normal(mu, sigma=1)
+
+    post_x = condition([x], {mu: 0})
+    theano.printing.debugprint(post_x)
+
+
 def test_gaussian_map():
     """Maximum a-posteriori fitting of Gaussian"""
 
-    x = Normal(
-            mu=Normal(10, .1),
-            sigma=1)
-    data = theano.shared.as_tensor_variable([0, 1, 3, 4])
-
-    post = posterior_modes({x: data})
-    map_mu = post[x.mu]
-    map_sigma = post[x.sigma]
+    mu = rv.Normal(10, .1)
+    x = Normal(mu, sigma=1)
+    post_mu = condition([mu], {x: [0, 1, 3, 4]})
 
     f = theano.function([], [map_mu, map_sigma])
 

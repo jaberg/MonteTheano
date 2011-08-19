@@ -417,9 +417,16 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     updates.update(dict([(f, s[-1]) for f, s in zip(free_RVs_state, samples[1:])]))
     
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
-    
-    
 
+
+# ----------
+# Undirected
+# ----------
+
+class Undirected(theano.Op):
+    def __init__(self, ops, n_inputs):
+        self.ops = ops
+        self.n_inputs = n_inputs
 
 
 

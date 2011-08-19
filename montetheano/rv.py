@@ -39,8 +39,25 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
+
 def condition(rvs, observations):
-    raise NotImplementedError()
+    if len(rvs) > 1:
+        raise NotImplementedError()
+    # if none of the rvs show up in the ancestors of any observations
+    # then this is easy conditioning
+    obs_ancestors = ancestors(observations.keys(), blockers=rvs)
+    if any(rv in obs_ancestors for rv in rvs):
+        # tricky conditioning
+        raise NotImplementedError()
+    else:
+        # easy conditioning
+        rvs_anc = ancestors(rvs, blockers=observations.keys())
+        frontier = [r for r in rvs_anc
+                if r.owner is None or r in observations.keys()]
+        cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, rvs,
+                replacements=observations)
+        return cloned_outputs
+
 
 def log_density(assignment, given):
     """
