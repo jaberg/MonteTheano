@@ -30,11 +30,12 @@ def rv_dist_name(rv):
 class RandomStreams(ClobberContext):
     clobber_symbols = ['pdf']
 
-    def __init__(self, seed):
+    def __init__(self, seed, draw_shape=()):
         self.state_updates = []
         self.default_instance_seed = seed
         self.seed_generator = numpy.random.RandomState(seed)
         self.default_updates = {}
+        self.draw_shape = draw_shape
 
     def shared(self, val, **kwargs):
         rval = theano.shared(val, **kwargs)
@@ -61,6 +62,8 @@ class RandomStreams(ClobberContext):
 
     def sample(self, dist_name, *args, **kwargs):
         handler = samplers[dist_name]
+        if 'draw_shape' not in kwargs:
+            kwargs['draw_shape'] = self.draw_shape
         out = handler(self, *args, **kwargs)
         return out
 
