@@ -5,14 +5,15 @@ import theano
 
 from theano import tensor
 from rstreams import RandomStreams
-from distributions import rejection_sample, mh_sample, hybridmc_sample
+import distributions
+from sample import rejection_sample, mh_sample, hybridmc_sample
 import pylab
 
 from rv import log_density, full_log_likelihood
 
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(23424)
+        s_rng = self.s_rng = RandomStreams(23424)
 
         p = 0.5
         
@@ -57,7 +58,7 @@ class TestBasicBinomial(unittest.TestCase):
 # first example: http://projects.csail.mit.edu/church/wiki/Learning_as_Conditional_Inference
 class TestCoin(unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(23424)
+        s_rng = self.s_rng = RandomStreams(23424)
 
         self.fair_prior = 0.999
         self.fair_coin = s_rng.binomial((), 1, self.fair_prior)
@@ -77,7 +78,7 @@ class TestCoin(unittest.TestCase):
 
 class TestCoin2(): #unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(23424)
+        s_rng = self.s_rng = RandomStreams(23424)
 
         self.repetitions = 100        
         self.coin_weight = s_rng.uniform((), low=0, high=1)
@@ -94,7 +95,7 @@ class TestCoin2(): #unittest.TestCase):
         
 class TestGMM(unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(23424)
+        s_rng = self.s_rng = RandomStreams(23424)
 
         self.p = tensor.scalar()
         self.m1 = tensor.scalar() 
@@ -129,7 +130,7 @@ class TestGMM(unittest.TestCase):
         
 class TestHierarchicalNormal(): #unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(23424)
+        s_rng = self.s_rng = RandomStreams(23424)
         a = 0.0
         b = 1.0
         c = 1.5
@@ -185,7 +186,7 @@ class TestHierarchicalNormal(): #unittest.TestCase):
         
 class TestBayesianLogisticRegression(): #unittest.TestCase):
     def setUp(self):
-        s_rng = self.s_rng = tensor.shared_randomstreams.RandomStreams(3424)
+        s_rng = self.s_rng = RandomStreams(3424)
 
         self.W1 = s_rng.normal((), 0, 4)
         self.W2 = s_rng.normal((), 0, 4)
@@ -194,7 +195,7 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
         # self.y = tensor.nnet.sigmoid(tensor.dot(self.x, self.W) + self.b)
         self.y = tensor.nnet.sigmoid(self.x[:,0]*self.W1 + self.x[:,1]*self.W2)
 
-        self.t = s_rng.binomial(size=(4,1), p=self.y)
+        self.t = s_rng.binomial((4,1), p=self.y)
         
         self.X_data = numpy.asarray([[-1.5, -0.4, 1.3, 2.2],[-1.1, -2.2, 1.3, 0]], dtype=theano.config.floatX).T 
         self.Y_data = numpy.asarray([1., 1., 0., 0.], dtype=theano.config.floatX)
