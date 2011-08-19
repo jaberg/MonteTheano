@@ -227,18 +227,33 @@ def shape_infer_shape(self, node, ishapes):
 if not hasattr(theano.tensor.basic.Shape, 'infer_shape'):
     theano.tensor.basic.Shape.infer_shape = shape_infer_shape
 
+def makevector_infer_shape(self, node, ishapes):
+    print "mv", node.inputs, node.inputs[0].data
+    return [(node.inputs[0].data,)]
+
+if not hasattr(theano.tensor.opt.MakeVector, 'infer_shape'):
+    theano.tensor.opt.MakeVector.infer_shape = makevector_infer_shape
+
 def infer_shape_helper(v, assume_shared_size_fixed):
+    print "v", v
+    
     if not isinstance(v.type, tensor.TensorType):
         return None
 
     if v.owner:
         if len(v.owner.outputs) > 1:
-            # which input is this,
-            # retrieve that shape from the op's return values
-            raise NotImplementedError()
+            output_pos = v.owner.outputs.index(v)
+        else:
+            output_pos = 0
+    
+        print "ish ->"
         ishapes = [infer_shape_helper(i, assume_shared_size_fixed)
                 for i in v.owner.inputs]
-        return v.owner.op.infer_shape(v.owner, ishapes)[0]
+        print "ish <-", ishapes
+                
+        print "pos", output_pos
+        print v.owner.op.infer_shape(v.owner, ishapes)
+        return v.owner.op.infer_shape(v.owner, ishapes)[output_pos]
 
 
     if isinstance(v, theano.Constant):
@@ -251,6 +266,8 @@ def infer_shape_helper(v, assume_shared_size_fixed):
             raise ValueError('shared var')
 
 def infer_shape(v, assume_shared_size_fixed=True):
+    print v
+    
     rval = infer_shape_helper(v, assume_shared_size_fixed)
     if None is rval:
         raise TypeError('some ancestor was not a TensorType var')
@@ -259,6 +276,8 @@ def infer_shape(v, assume_shared_size_fixed=True):
             return int(o.data)
         else:
             return int(o)
+            
+    print rval
     return tuple([as_int(r) for r in rval])
 
 
