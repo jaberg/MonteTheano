@@ -1,7 +1,7 @@
 """
 Functions for operating on random variables.
 """
-from for_theano import ancestors
+from for_theano import ancestors, as_variable
 from rstreams import randomstate_types, lpdf
 from shallow_clone import clone_keep_replacements
 
@@ -39,10 +39,16 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
+def typed_items(dct):
+    return dict([
+        (rv, as_variable(sample, type=rv.type))
+        for rv, sample in dct.items()])
 
 def condition(rvs, observations):
     if len(rvs) > 1:
         raise NotImplementedError()
+    observations = typed_items(observations)
+    print observations
     # if none of the rvs show up in the ancestors of any observations
     # then this is easy conditioning
     obs_ancestors = ancestors(observations.keys(), blockers=rvs)
@@ -79,9 +85,7 @@ def log_density(assignment, given):
             raise ValueError('non-random var in assignment key', rv)
 
     # Cast assignment elements to the right kind of thing
-    assignment = dict([
-        (rv, rv.type.filter(sample, allow_downcast=True))
-        for rv, sample in assignment.items()])
+    assignment = typed_items(assignment)
 
     if givens:
         rvs = assignment.keys()
