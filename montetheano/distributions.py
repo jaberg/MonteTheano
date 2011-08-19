@@ -51,16 +51,16 @@ def uniform_params(node):
 
 
 @rng_register
-def normal_sampler(rstream, shape=None, mu=0.0, sigma=1.0, ndim=0, dtype=None):
+def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=0, dtype=None):
     if not isinstance(mu, theano.Variable):
         mu = tensor.shared(numpy.asarray(mu, dtype=theano.config.floatX))
     if not isinstance(sigma, theano.Variable):
         sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
 
-    print rstate, shape, mu, sigma, dtype
-    
-    new_rstate, out = tensor.raw_random.normal(rstate, shape, mu, sigma, dtype=dtype)
+    if isinstance(draw_shape, (list, tuple)):
+        draw_shape = tensor.stack(*draw_shape)
+    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
