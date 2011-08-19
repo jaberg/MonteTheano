@@ -8,6 +8,17 @@ from theano import tensor
 from for_theano import ancestors
 from rv import is_raw_rv, full_log_likelihood
 
+
+# Major TODOs:
+# - RVs should have a non-symbolic shape so the MC states can be allocated
+# - We need to initialize the chains in draw from the independent prior distributions
+# - We need proposal distributions for all RVs from which to draw samples
+# - An additional loop around mh_sample is required
+# - An efficient parallel MC sampler is possible, which might be less decorrelated (or more book-keeping is required)
+# - The HMC sampler needs an outside loop and an additional inner loop for the leap-frog steps
+
+
+
 # Sample the generative model and return "outputs" for cases where "condition" is met.
 # If no condition is given, it just samples from the model
 # The outputs can be a single TheanoVariable or a list of TheanoVariables.

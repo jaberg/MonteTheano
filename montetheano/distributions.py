@@ -11,6 +11,13 @@ from for_theano import elemwise_cond
 from for_theano import ancestors
 from rstreams import rng_register
 
+# TODOs:
+# - Additional distributions of interest:
+#   - Multinomial
+#   - Wishart
+#   - Dirichlet process / CRP
+# - Proposal distributions
+
 # -------
 # Uniform
 # -------
