@@ -7,7 +7,7 @@ from theano import tensor
 from rstreams import RandomStreams
 import distributions
 from sample import rejection_sample, mh_sample, hybridmc_sample
-from rv import log_density, full_log_likelihood
+from rv import full_log_likelihood
 
 import pylab
 
@@ -110,7 +110,7 @@ class TestGMM(unittest.TestCase):
         
     def test_tt(self):
         RVs = dict([(self.D, self.D_data)])
-        lik = log_density(RVs, {})
+        lik = full_log_likelihood(RVs)
         
         lf = theano.function([self.m1, self.m2, self.C], lik)
         
@@ -202,7 +202,7 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
 
     def test_likelihood(self):            
         RVs = dict([(self.t, self.Y_data)])                
-        lik = log_density(RVs, {})
+        lik = full_log_likelihood(RVs)
         
         givens = dict([(self.x, self.X_data)])
         lik_func = theano.function([self.W1, self.W2], lik, givens=givens, allow_input_downcast=True)

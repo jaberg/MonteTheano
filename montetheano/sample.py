@@ -44,11 +44,13 @@ def mh_sample(s_rng, outputs, observations = {}):
     """
 
     all_vars = ancestors(list(outputs) + list(observations.keys()))
+    
     for o in observations:
         assert o in all_vars
         if not is_raw_rv(o):
             raise TypeError(o)
 
+    RVs = [v for v in all_vars if is_raw_rv(v)]
     free_RVs = [v for v in RVs if v not in observations]
 
     # TODO: sample from the prior to initialize these guys?
@@ -70,7 +72,7 @@ def mh_sample(s_rng, outputs, observations = {}):
         full_observations = dict(observations)
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, proposals)]))
 
-        new_log_likelihood = full_log_likelihood(observations = full_observations)
+        new_log_likelihood = full_log_likelihood(full_observations)
 
         accept = tensor.or_(new_log_likelihood > ll, U <= tensor.exp(new_log_likelihood - ll))
 
@@ -114,7 +116,8 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     def mcmc(ll, *frvs):
         full_observations = dict(observations)
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, frvs)]))
-        loglik = -full_log_likelihood(observations = full_observations)
+        
+        loglik = -full_log_likelihood(full_observations)
 
         proposals = free_RVs_prop
         H = tensor.add(*[tensor.sum(tensor.sqr(p)) for p in proposals])/2. + loglik
@@ -127,7 +130,7 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
         
         full_observations = dict(observations)
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, rvsp)]))
-        new_loglik = -full_log_likelihood(observations = full_observations)
+        new_loglik = -full_log_likelihood(full_observations)
         
         gnew = tensor.grad(new_loglik, rvsp)
         proposals = [(p - epsilon*gn/2.) for p, gn in zip(proposals, gnew)]
