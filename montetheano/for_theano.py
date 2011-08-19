@@ -4,13 +4,24 @@ import theano
 from theano import tensor
 from theano.gof import graph
 
-def as_variable(thing):
+def as_variable(thing, type=None):
     if isinstance(thing, theano.Variable):
-        return thing
+        if type is None or thing.type == type:
+            return thing
+        else:
+            raise TypeError(thing)
     if hasattr(thing, 'type'):
-        return thing
-    #TODO: why there is no theano.constant??
-    return theano.shared(thing)
+        if type is None or thing.type == type:
+            return thing
+        else:
+            raise TypeError(thing)
+    if type is None:
+        #TODO: why there is no theano.constant??
+        return theano.shared(thing)
+    else:
+        return type.Constant(
+                type,
+                type.filter(thing, allow_downcast=True))
 
 class Bincount(theano.Op):
     """
