@@ -417,7 +417,15 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     updates.update(dict([(f, s[-1]) for f, s in zip(free_RVs_state, samples[1:])]))
     
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
-    
+
+# ----------
+# Undirected
+# ----------
+
+class Undirected(theano.Op):
+    def __init__(self, ops, n_inputs):
+        self.ops = ops
+        self.n_inputs = n_inputs
     
 if 0:
     # UNVERIFIED
@@ -489,32 +497,7 @@ if 0:
             if isinstance(idx, Categorical):
                 return Mixture(Categorical.weights, self.components)
             else:
-                return self.components[idx]
-    
-    
-    # UNVERIFIED
-    class Dict(RV):
-        def __init__(self, **kwargs):
-            self.components = kwargs
-    
-        def sample(self, draw_shape, rstreams, memo):
-            raise NotImplementedError()
-    
-        def pdf(self, X):
-            raise NotImplementedError()
-    
-    # UNVERIFIED
-    class Mixture(RV):
-        def __init__(self, weights, components):
-            self.weights = weights
-            self.components = components
-    
-        def sample(self, draw_shape, rstreams, memo):
-            raise NotImplementedError()
-    
-        def pdf(self, x):
-            raise NotImplementedError()
-    
+                return self.components[idx]    
     
     # UNVERIFIED
     @register_pdf
@@ -528,6 +511,3 @@ if 0:
             # TODO assert n == 1
             
             return tensor.switch(tensor.eq(sample, 1.), tensor.log(p), tensor.log(1. - p))
-        else:
-            raise WrongPdfHandler()
-    
