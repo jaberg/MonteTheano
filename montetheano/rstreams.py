@@ -61,7 +61,7 @@ class RandomStreams(ClobberContext):
         self.state_updates.append((recip, new_expr))
 
     def sample(self, dist_name, *args, **kwargs):
-        handler = self.samplers[dist_name]
+        handler = samplers[dist_name]
         out = handler(self, *args, **kwargs)
         return out
 
@@ -91,7 +91,7 @@ class RandomStreams(ClobberContext):
         """
         if rv.owner:
             dist_name = rv_dist_name(rv)
-            pdf = self.pdfs[dist_name]
+            pdf = pdfs[dist_name]
             return pdf(rv.owner, sample, kwargs)
         else:
             raise TypeError('rv not recognized as output of RandomFunction')
@@ -103,7 +103,7 @@ class RandomStreams(ClobberContext):
         """
         if rv.owner:
             dist_name = rv_dist_name(rv)
-            pdf = self.ml_handlers[dist_name]
+            pdf = ml_handlers[dist_name]
             return pdf(rv.owner, sample, weights=weights)
         else:
             raise TypeError('rv not recognized as output of RandomFunction')
@@ -144,7 +144,7 @@ def register_sampler(dist_name, f):
     setattr(RandomStreams, dist_name, sampler)
     RandomStreams.clobber_symbols.append(dist_name)
 
-    if dist_name in RandomStreams.samplers:
+    if dist_name in samplers:
         # TODO: allow for multiple handlers?
         raise KeyError(dist_name)
     samplers[dist_name] = f
@@ -152,10 +152,10 @@ def register_sampler(dist_name, f):
 
 
 def register_lpdf(dist_name, f):
-    if dist_name in RandomStreams.pdfs:
+    if dist_name in pdfs:
         # TODO: allow for multiple handlers?
-        raise KeyError(dist_name, RandomStreams.pdfs[dist_name])
-    RandomStreams.pdfs[dist_name] = f
+        raise KeyError(dist_name, pdfs[dist_name])
+    pdfs[dist_name] = f
     return f
 
 
@@ -208,7 +208,7 @@ def lpdf(rv, sample):
 
     if is_raw_rv(rv):
         dist_name = rv_dist_name(rv)
-        pdf = self.pdfs[dist_name]
+        pdf = pdfs[dist_name]
         return pdf(rv.owner, sample, kwargs)
     else:
         #TODO: infer from the ancestors of v what distribution it

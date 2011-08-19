@@ -102,7 +102,7 @@ def elemwise_cond(*args):
                 elemwise_cond(*args[2:]))
 
 
-class LazySwitch(theano.gof.PureOp):
+class LazySwitch(theano.gof.op.PureOp):
     """
     lazy_switch(which_case, case0, case1, case2, case3, ...)
 

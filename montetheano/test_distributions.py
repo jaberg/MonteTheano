@@ -4,11 +4,11 @@ import numpy
 import theano
 
 from theano import tensor
-from distributions import RandomStreams
+from rstreams import RandomStreams
 from distributions import rejection_sample, mh_sample, hybridmc_sample
 import pylab
 
-from pdfreg import log_pdf, full_log_likelihood
+from rv import log_density, full_log_likelihood
 
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
@@ -109,7 +109,7 @@ class TestGMM(unittest.TestCase):
         
     def test_tt(self):
         RVs = dict([(self.D, self.D_data)])
-        lik = full_log_likelihood(RVs, keep_unobserved=True)
+        lik = log_density(RVs, {})
         
         lf = theano.function([self.m1, self.m2, self.C], lik)
         
@@ -201,7 +201,7 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
 
     def test_likelihood(self):            
         RVs = dict([(self.t, self.Y_data)])
-        lik = full_log_likelihood(RVs, keep_unobserved=True)
+        lik = log_density(RVs, {})
         
         givens = dict([(self.x, self.X_data)])
         lik_func = theano.function([self.W1, self.W2], lik, givens=givens, allow_input_downcast=True)

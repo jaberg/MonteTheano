@@ -236,7 +236,7 @@ def categorical_sampler(rstate, p, shape=None, ndim=None, dtype='int32'):
 
 
 @rng_register
-def categorical_pdf(node, sample, kw):
+def categorical_lpdf(node, sample, kw):
     """
     Return a random integer from 0 .. N-1 inclusive according to the
     probabilities p[0] .. P[N-1].
@@ -296,7 +296,7 @@ def dirichlet_sampler(rstate, alpha, shape=None, ndim=None, dtype=None):
 
 
 @rng_register
-def dirichlet_pdf(node, sample, kw):
+def dirichlet_lpdf(node, sample, kw):
     """
 
     http://en.wikipedia.org/wiki/Dirichlet_distribution
@@ -419,118 +419,115 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
     
     
-
-
-
-
-# UNVERIFIED
-class Normal(RV):
-    def __init__(self, mu, sigma):
-        self.mu = as_rv_or_sharedX(mu)
-        self.sigma = as_rv_or_sharedX(sigma)
-
-    def sample(self, draw_shape, rstreams, sample):
-        mu = sample(self.mu, ())
-        sigma = sample(self.sigma, ())
-        return rstreams.normal(draw_shape, mu, sigma)
-
-    def pdf(self, x):
-        one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
-        rstate, shape, mu, sigma = node.inputs
-        Z = tensor.sqrt(2 * numpy.pi * sigma**2)
-        E = 0.5 * ((mu - x)/(one*sigma))**2
-        return tensor.exp(-E) / Z
-
-    def params(self):
-        return [i for i in [self.mu, self.sigma]
-                if isinstance(i, theano.Variable)]
-
-    def posterior(self, x, weights=None):
-        """
-        Message-passing required.
-        """
-        raise NotImplementedError() 
-
-    def maximum_likelihood(self, x, weights=None):
-        eps = 1e-8
-        if weights is None:
-            new_mu = tensor.mean(sample)
-            new_sigma = tensor.std(sample)
-
+if 0:
+    # UNVERIFIED
+    class Normal(RV):
+        def __init__(self, mu, sigma):
+            self.mu = as_rv_or_sharedX(mu)
+            self.sigma = as_rv_or_sharedX(sigma)
+    
+        def sample(self, draw_shape, rstreams, sample):
+            mu = sample(self.mu, ())
+            sigma = sample(self.sigma, ())
+            return rstreams.normal(draw_shape, mu, sigma)
+    
+        def pdf(self, x):
+            one = tensor.as_tensor_variable(numpy.asarray(1, dtype='float32'))
+            rstate, shape, mu, sigma = node.inputs
+            Z = tensor.sqrt(2 * numpy.pi * sigma**2)
+            E = 0.5 * ((mu - x)/(one*sigma))**2
+            return tensor.exp(-E) / Z
+    
+        def params(self):
+            return [i for i in [self.mu, self.sigma]
+                    if isinstance(i, theano.Variable)]
+    
+        def posterior(self, x, weights=None):
+            """
+            Message-passing required.
+            """
+            raise NotImplementedError() 
+    
+        def maximum_likelihood(self, x, weights=None):
+            eps = 1e-8
+            if weights is None:
+                new_mu = tensor.mean(sample)
+                new_sigma = tensor.std(sample)
+    
+            else:
+                denom = tensor.maximum(tensor.sum(weights), eps)
+                new_mu = tensor.sum(sample*weights) / denom
+                new_sigma = tensor.sqrt(
+                        tensor.sum(weights * (sample - new_mu)**2)
+                        / denom)
+            rval = Updates()
+            if self.mu in self.params():
+                rval[self.mu] = new_mu
+            if self.sigma in self.params():
+                rval[self.sigma] = new_sigma
+            return rval
+    
+    
+    # UNVERIFIED
+    class Categorical(RV):
+        def __init__(self, weights):
+            self.weights = weights
+    
+        def sample(self, N, rstreams):
+            raise NotImplementedError()
+    
+        def pdf(self, x):
+            raise NotImplementedError()
+    
+    
+    # UNVERIFIED
+    class List(RV):
+        def __init__(self, components):
+            self.components = components
+    
+        def __getitem__(self, idx):
+            if isinstance(idx, Categorical):
+                return Mixture(Categorical.weights, self.components)
+            else:
+                return self.components[idx]
+    
+    
+    # UNVERIFIED
+    class Dict(RV):
+        def __init__(self, **kwargs):
+            self.components = kwargs
+    
+        def sample(self, draw_shape, rstreams, memo):
+            raise NotImplementedError()
+    
+        def pdf(self, X):
+            raise NotImplementedError()
+    
+    # UNVERIFIED
+    class Mixture(RV):
+        def __init__(self, weights, components):
+            self.weights = weights
+            self.components = components
+    
+        def sample(self, draw_shape, rstreams, memo):
+            raise NotImplementedError()
+    
+        def pdf(self, x):
+            raise NotImplementedError()
+    
+    
+    # UNVERIFIED
+    @register_pdf
+    def binomial(rv, sample, kw):
+        if (rv.owner
+                and isinstance(rv.owner.op, tensor.raw_random.RandomFunction)
+                and rv.owner.op.fn == numpy.random.RandomState.binomial):
+            random_state, size, n, p = rv.owner.inputs
+    
+            # for the n > 1 the "choose" operation is required
+            # TODO assert n == 1
+            
+            return tensor.switch(tensor.eq(sample, 1.), tensor.log(p), tensor.log(1. - p))
         else:
-            denom = tensor.maximum(tensor.sum(weights), eps)
-            new_mu = tensor.sum(sample*weights) / denom
-            new_sigma = tensor.sqrt(
-                    tensor.sum(weights * (sample - new_mu)**2)
-                    / denom)
-        rval = Updates()
-        if self.mu in self.params():
-            rval[self.mu] = new_mu
-        if self.sigma in self.params():
-            rval[self.sigma] = new_sigma
-        return rval
-
-
-# UNVERIFIED
-class Categorical(RV):
-    def __init__(self, weights):
-        self.weights = weights
-
-    def sample(self, N, rstreams):
-        raise NotImplementedError()
-
-    def pdf(self, x):
-        raise NotImplementedError()
-
-
-# UNVERIFIED
-class List(RV):
-    def __init__(self, components):
-        self.components = components
-
-    def __getitem__(self, idx):
-        if isinstance(idx, Categorical):
-            return Mixture(Categorical.weights, self.components)
-        else:
-            return self.components[idx]
-
-
-# UNVERIFIED
-class Dict(RV):
-    def __init__(self, **kwargs):
-        self.components = kwargs
-
-    def sample(self, draw_shape, rstreams, memo):
-        raise NotImplementedError()
-
-    def pdf(self, X):
-
-
-# UNVERIFIED
-class Mixture(RV):
-    def __init__(self, weights, components):
-        self.weights = weights
-        self.components = components
-
-    def sample(self, draw_shape, rstreams, memo):
-        raise NotImplementedError()
-
-    def pdf(self, x):
-        raise NotImplementedError()
-
-
-# UNVERIFIED
-@register_pdf
-def binomial(rv, sample, kw):
-    if (rv.owner
-            and isinstance(rv.owner.op, tensor.raw_random.RandomFunction)
-            and rv.owner.op.fn == numpy.random.RandomState.binomial):
-        random_state, size, n, p = rv.owner.inputs
-
-        # for the n > 1 the "choose" operation is required
-        # TODO assert n == 1
-        
-        return tensor.switch(tensor.eq(sample, 1.), tensor.log(p), tensor.log(1. - p))
-    else:
-        raise WrongPdfHandler()
-
+            raise WrongPdfHandler()
+    

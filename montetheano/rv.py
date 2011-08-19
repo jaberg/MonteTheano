@@ -86,8 +86,6 @@ def log_density(assignment, given):
         frontier = [r for r in dfs_variables
                 if r.owner is None or r in assignment.keys()]
         cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [lik],
-                # Benjamin - Why make new dict?
-                # replacements=dict(observations.items()))
                 replacements=assignment)
         cloned_lik, = cloned_outputs
         return cloned_lik
