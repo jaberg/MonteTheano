@@ -40,10 +40,12 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
+
 def typed_items(dct):
     return dict([
         (rv, as_variable(sample, type=rv.type))
         for rv, sample in dct.items()])
+
 
 def condition(rvs, observations):
     if len(rvs) > 1:
@@ -54,7 +56,8 @@ def condition(rvs, observations):
     # then this is easy conditioning
     obs_ancestors = ancestors(observations.keys(), blockers=rvs)
     if any(rv in obs_ancestors for rv in rvs):
-        # tricky conditioning
+        # not-so-easy conditioning
+        # we need to produce a sampler-driven model
         raise NotImplementedError()
     else:
         # easy conditioning
