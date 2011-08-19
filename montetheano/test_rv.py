@@ -5,6 +5,9 @@ import distributions # triggers registry
 import rv
 
 def test_dag_condition_top():
+    """
+    Easy test of conditioning
+    """
     with RandomStreams(234) as _:
         mu = normal(10, .1)
         x = normal(mu, sigma=1)
@@ -15,6 +18,21 @@ def test_dag_condition_top():
     f = theano.function([], post_x)
     r = [f() for i in range(10)]
     assert numpy.allclose(numpy.mean(r), -7.4722755432)
+
+
+def test_dag_condition_bottom():
+    """
+    Test test of conditioning an upper node on a lower one
+    """
+    with RandomStreams(234) as _:
+        mu = normal(10, .1)
+        x = normal(mu, sigma=1)
+
+    post_mu = rv.condition([mu], {x: -7})
+    theano.printing.debugprint(post_mu)
+
+    f = theano.function([], post_mu)
+    f()
 
 
 def test_gaussian_map():

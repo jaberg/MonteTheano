@@ -53,7 +53,8 @@ def condition(rvs, observations):
     # then this is easy conditioning
     obs_ancestors = ancestors(observations.keys(), blockers=rvs)
     if any(rv in obs_ancestors for rv in rvs):
-        # tricky conditioning
+        # not-so-easy conditioning
+        # we need to produce a sampler-driven model
         raise NotImplementedError()
     else:
         # easy conditioning
