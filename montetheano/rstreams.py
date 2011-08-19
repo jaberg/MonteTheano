@@ -196,21 +196,3 @@ def rng_register(f):
     else:
         raise ValueError("function name suffix not recognized", f.__name__)
 
-
-def lpdf(rv, sample):
-    """
-    Return the probability (density) that random variable `rv`, returned by
-    a call to one of the sampling routines of this class takes value `sample`
-    """
-    if not is_rv(rv):
-        raise TypeError('rv not recognized as a random variable', rv)
-
-    if is_raw_rv(rv):
-        dist_name = rv_dist_name(rv)
-        pdf = pdfs[dist_name]
-        return pdf(rv.owner, sample, kwargs)
-    else:
-        #TODO: infer from the ancestors of v what distribution it
-        #      has.
-        raise NotImplementedError()
-
