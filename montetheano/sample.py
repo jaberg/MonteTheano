@@ -4,28 +4,6 @@ Algorithms for drawing samples by MCMC
 """
 
 
-def full_sample(s_rng, outputs ):
-    all_vars = ancestors(outputs)
-    assert outputs[0] in all_vars
-    RVs = [v for v in all_vars if is_random_var(v)]
-    rdict = dict([(v, v) for v in RVs])
-
-    if True:
-        # outputs is same
-        raise NotImplementedError()
-    elif isinstance(size, int):
-        # use scan
-        raise NotImplementedError()
-    else:
-        n_steps = theano.tensor.prod(size)
-        # use scan for n_steps
-        #scan_outputs = ...
-        outputs = scan_outputs[:len(outputs)]
-        s_RVs = scan_outputs[len(outputs):]
-        # reshape so that leading dimension goes from n_steps -> size
-        raise NotImplementedError()
-    return outputs, rdict
-
 # Sample the generative model and return "outputs" for cases where "condition" is met.
 # If no condition is given, it just samples from the model
 # The outputs can be a single TheanoVariable or a list of TheanoVariables.

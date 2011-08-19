@@ -39,10 +39,12 @@ def all_raw_rvs(outputs):
     rval = [v for v in all_vars if is_raw_rv(v)]
     return rval
 
+
 def typed_items(dct):
     return dict([
         (rv, as_variable(sample, type=rv.type))
         for rv, sample in dct.items()])
+
 
 def condition(rvs, observations):
     if len(rvs) > 1:
