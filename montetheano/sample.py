@@ -5,7 +5,7 @@ Algorithms for drawing samples by MCMC
 import numpy
 import theano
 from theano import tensor
-from for_theano import ancestors
+from for_theano import ancestors, infer_shape
 from rv import is_raw_rv, full_log_likelihood
 
 
@@ -67,8 +67,8 @@ def mh_sample(s_rng, outputs, observations = {}):
     # TODO: sample from the prior to initialize these guys?
     # free_RVs_state = [theano.shared(v) for v in free_RVs]
     # TODO: how do we infer shape?
-    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=())) for v in free_RVs]
-    free_RVs_prop = [s_rng.normal(0, .1) for v in free_RVs]
+    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=infer_shape(v))) for v in free_RVs]
+    free_RVs_prop = [s_rng.normal(0, .1, draw_shape=infer_shape(v)) for v in free_RVs]
 
     log_likelihood = theano.shared(numpy.array(float('-inf')))
 

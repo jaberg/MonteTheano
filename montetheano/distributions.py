@@ -6,6 +6,8 @@ import __builtin__
 import copy
 import numpy
 import theano
+import scipy
+import scipy.special
 from theano import tensor
 from for_theano import elemwise_cond
 from for_theano import ancestors
@@ -24,9 +26,13 @@ from rstreams import rng_register
 
 
 @rng_register
-def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, shape=None, dtype=theano.config.floatX):
+def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtype=theano.config.floatX):
     rstate = rstream.new_shared_rstate()
-    new_rstate, out = tensor.raw_random.uniform(rstate, shape, low, high, ndim, dtype)
+
+    if isinstance(draw_shape, (list, tuple)):
+        draw_shape = tensor.stack(*draw_shape)
+
+    new_rstate, out = tensor.raw_random.uniform(rstate, draw_shape, low, high, ndim, dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -111,24 +117,28 @@ def normal_params(node):
 # ---------
 
 @rng_register
-def binomial_sampler(rstream, n=1, p=0.5, ndim=0, shape=None, dtype=theano.config.floatX):
+def binomial_sampler(rstream, n=1, p=0.5, ndim=0, draw_shape=None, dtype=theano.config.floatX):
     if not isinstance(n, theano.Variable):
         n = tensor.shared(numpy.asarray(n, dtype=int))
     if not isinstance(p, theano.Variable):
         p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
-    new_rstate, out = tensor.raw_random.binomial(rstate, shape, n, p, dtype=dtype)
+
+    if isinstance(draw_shape, (list, tuple)):
+        draw_shape = tensor.stack(*draw_shape)
+
+    new_rstate, out = tensor.raw_random.binomial(rstate, draw_shape, n, p, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
 @rng_register
-def binomial_lpdf(node, sample, kw):
+def binomial_lpdf(node, x, kw):
     random_state, size, n, p = node.inputs
 
     # for the n > 1 the "choose" operation is required
     # TODO assert n == 1
     
-    return tensor.switch(tensor.eq(sample, 1.), tensor.log(p), tensor.log(1. - p))
+    return tensor.switch(tensor.eq(x, 1.), tensor.log(p), tensor.log(1. - p))
 
 @rng_register
 def binomial_params(node):
@@ -240,58 +250,110 @@ def categorical_lpdf(node, sample, kw):
 
 
 # ---------
+# LogGamma helper Op
+# ---------
+
+class LogGamma(theano.Op):
+  def __eq__(self, other):
+    return type(self) == type(other)
+
+  def __hash__(self):
+    return hash(type(self))
+
+  def make_node(self, x):
+    x_ = tensor.as_tensor_variable(x)
+    return theano.Apply(self,
+      inputs=[x_],
+      outputs=[x_.type()])
+
+  def perform(self, node, inputs, output_storage):
+    x, = inputs
+    y = output_storage[0][0] = x.copy()
+    for i in range(2,len(x)):
+      y[i] = scipy.special.gammaln(x[i])
+
+logGamma = LogGamma()
+
+# ---------
 # Dirichlet
 # ---------
 
-
-class Dirichlet(theano.Op):
-    dist_name = 'dirichlet'
-    def __init__(self, destructive):
-        self.destructive = destructive
-        if destructive:
-            self.destroy_map = {0:[0]}
-        else:
-            self.destroy_map = {}
-
-    def __eq__(self, other):
-        return (type(self) == type(other)
-                and self.destructive == other.destructive)
-
-    def __hash__(self):
-        return hash((type(self), self.destructive))
-
-    def make_node(self, s_rstate, alpha):
-        alpha = tensor.as_tensor_variable(alpha)
-        if alpha.ndim != 1: raise NotImplementedError()
-        return theano.gof.Apply(self,
-                [s_rstate, alpha],
-                [s_rstate.type(), alpha.type()])
-
-    def perform(self, node, inputs, outstor):
-        rng, alpha = inputs
-        if not self.destructive:
-            rng = copy.deepcopy(rng)
-        oval = rng.dirichlet(alpha=alpha).astype(alpha.dtype)
-        outstor[0][0] = rng
-        outstor[1][0] = oval
-
-
 @rng_register
-def dirichlet_sampler(rstate, alpha, shape=None, ndim=None, dtype=None):
-    if shape != None:
-        raise NotImplementedError()
-    if dtype != None:
-        raise NotImplementedError()
-    op = Dirichlet(False)
-    return op(rstate, alpha)
+def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    alpha = tensor.as_tensor_variable(alpha)
+    if dtype == None:
+        dtype = tensor.scal.upcast(theano.config.floatX, alpha.dtype)
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, alpha)
+    op = tensor.raw_random.RandomFunction('dirichlet',
+            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+    
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = op(rstate, draw_shape, alpha)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
-
+def logBeta(alpha):
+    return tensor.sum(logGamma(alpha)) - logGamma(tensor.sum(alpha))
+    
 @rng_register
 def dirichlet_lpdf(node, sample, kw):
-    """
+    r, shape, alpha = node.inputs
 
-    http://en.wikipedia.org/wiki/Dirichlet_distribution
+    return -logBeta(alpha) + tensor.sum(tensor.log(sample)*(alpha-1))
+    
+# ---------
+# Gamma
+# ---------
 
-    """
-    raise NotImplementedError()
+@rng_register
+def gamma_sampler(rstream, k, theta, draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    k = tensor.as_tensor_variable(k)
+    theta = tensor.as_tensor_variable(theta)
+    if dtype == None:
+        dtype = tensor.scal.upcast(theano.config.floatX, k.dtype, theta.dtype)
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, k, theta)
+    op = tensor.raw_random.RandomFunction('gamma',
+            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+            
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = op(rstate, draw_shape, k, theta)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
+@rng_register
+def gamma_lpdf(node, x, kw):
+    r, shape, a, b = node.inputs
+
+    return (a-1)*tensor.log(x) - x/b - numpy.lngamma(a) - a*tensor.log(b)
+    
+# ---------
+# Multinomial
+# ---------
+
+@rng_register
+def multinomial_sampler(rstream, n=1, p=[0.5, 0.5], draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    if not isinstance(n, theano.Variable):
+        n = tensor.shared(numpy.asarray(n, dtype=int))
+    if not isinstance(p, theano.Variable):
+        p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
+    rstate = rstream.new_shared_rstate()
+
+    if isinstance(draw_shape, (list, tuple)):
+        draw_shape = tensor.stack(*draw_shape)
+
+    new_rstate, out = tensor.raw_random.multinomial(rstate, draw_shape, n, p, dtype=dtype)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
+
+def logFactorial(x):
+    return logGamma(x+1)
+    
+@rng_register
+def multinomial_lpdf(node, x, kw):
+    r, shape, n, p = node.inputs
+
+    assert n == tensor.sum(x)
+    
+    return logFactorial(n) - tensor.sum(logFactorial(x)) + tensor.sum(tensor.log(p)*x)
+    
+    

@@ -35,7 +35,7 @@ class RandomStreams(ClobberContext):
         self.default_instance_seed = seed
         self.seed_generator = numpy.random.RandomState(seed)
         self.default_updates = {}
-
+        
     def shared(self, val, **kwargs):
         rval = theano.shared(val, **kwargs)
         return rval

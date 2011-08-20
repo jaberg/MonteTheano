@@ -188,14 +188,12 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(3424)
 
-        self.W1 = s_rng.normal(0, 4)
-        self.W2 = s_rng.normal(0, 4)
+        self.w = s_rng.normal(0, 4, draw_shape=(2,))
         
         self.x = tensor.matrix('x')
-        # self.y = tensor.nnet.sigmoid(tensor.dot(self.x, self.W) + self.b)
-        self.y = tensor.nnet.sigmoid(self.x[:,0]*self.W1 + self.x[:,1]*self.W2)
+        self.y = tensor.nnet.sigmoid(tensor.dot(self.x, self.w))
 
-        self.t = s_rng.binomial(shape=(4,), p=self.y)
+        self.t = s_rng.binomial(p=self.y, draw_shape=(4,))
         
         self.X_data = numpy.asarray([[-1.5, -0.4, 1.3, 2.2],[-1.1, -2.2, 1.3, 0]], dtype=theano.config.floatX).T 
         self.Y_data = numpy.asarray([1., 1., 0., 0.], dtype=theano.config.floatX)
@@ -205,7 +203,7 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
         lik = full_log_likelihood(RVs)
         
         givens = dict([(self.x, self.X_data)])
-        lik_func = theano.function([self.W1, self.W2], lik, givens=givens, allow_input_downcast=True)
+        lik_func = theano.function([self.w], lik, givens=givens, allow_input_downcast=True)
 
         delta = .1
         x = numpy.arange(-10.0, 10.0, delta)
@@ -214,17 +212,17 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
 
         response = []
         for x, y in zip(X.flatten(), Y.flatten()):
-            response.append(lik_func(x, y))
+            response.append(lik_func([x, y]))
 
         pylab.figure(1)
         pylab.contour(X, Y, numpy.exp(numpy.asarray(response)).reshape(X.shape), 20)            
         pylab.draw()
 
-        # sample, ll, updates = mh_sample(self.s_rng, [self.W1, self.W2], observations={self.t: self.Y_data})
-        sample, ll, updates = hybridmc_sample(self.s_rng, [self.W1, self.W2], observations={self.t: self.Y_data})
+        sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
+        # sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
 
         sampler = theano.function([], sample + [ll] , updates=updates, givens={self.x: self.X_data}, allow_input_downcast=True)
-        out = theano.function([self.W1, self.W2, self.x], self.y, allow_input_downcast=True)
+        out = theano.function([self.w, self.x], self.y, allow_input_downcast=True)
         
         delta = 0.1
         x = numpy.arange(-3, 3, delta)
@@ -233,14 +231,14 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
 
         b = numpy.zeros(X.shape)
         for i in range(500):
-            W1, W2, ll = sampler()            
+            w, ll = sampler()            
 
             if i % 10 == 0:
                 pylab.figure(1)            
-                pylab.plot(W1, W2, 'x')
+                pylab.plot(w[0], w[1], 'x')
                 pylab.draw()
 
-                response = out(W1, W2, numpy.vstack((X.flatten(), Y.flatten())).T)
+                response = out(w, numpy.vstack((X.flatten(), Y.flatten())).T)
                 response = response.reshape(X.shape)
                 b += response
 
@@ -280,6 +278,60 @@ class Fitting1D(unittest.TestCase):
         l,h = f()
         assert numpy.allclose([l,h], [0.0, 1.01])
 
-t = TestBayesianLogisticRegression()
+
+class TestHierarchicalBagBalls(): #unittest.TestCase):
+    def setUp(self):
+        s_rng = self.s_rng = RandomStreams(23424)
+
+        # (define phi (dirichlet '(1 1 1 1 1)))
+        self.phi = s_rng.dirichlet([1, 1, 1, 1, 1])
+        # (define alpha (gamma 2 2))
+        self.alpha = s_rng.gamma(2, 2)
+        
+        # (define prototype (map (lambda (w) (* alpha w)) phi))
+        
+        print self.phi
+        print self.alpha
+        self.prototype = self.phi*self.alpha
+
+        # (define bag->prototype
+        #   (mem (lambda (bag) (dirichlet prototype))))
+        self.bag_prototype = lambda bag: s_rng.dirichlet(self.prototype)
+        
+        # (define (draw-marbles bag num-draws)
+        #   (repeat num-draws
+        #           (lambda () (multinomial colors (bag->prototype bag)))))
+        self.draw_marbles = lambda bag, nr: s_rng.multinomial(nr, self.bag_prototype(bag), draw_shape=(nr,))
+
+        #  (equal? (draw-marbles 'bag-1 6) '(blue blue blue blue blue blue))
+        #  (equal? (draw-marbles 'bag-2 6) '(green green green green green green))
+        #  (equal? (draw-marbles 'bag-3 6) '(red red red red red red))
+        #  (equal? (draw-marbles 'bag-4 1) '(orange))        
+        self.marbles_bag_1 = tensor.as_tensor_variable([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]])
+        self.marbles_bag_2 = tensor.as_tensor_variable([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]])
+        self.marbles_bag_3 = tensor.as_tensor_variable([[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0]])
+        self.marbles_bag_4 = tensor.as_tensor_variable([[0],[0],[0],[0],[1]])
+
+    def test_predictive(self):
+        givens = {self.draw_marbles(1,6): self.marbles_bag_1,
+                    self.draw_marbles(2,6): self.marbles_bag_2,
+                    self.draw_marbles(3,6): self.marbles_bag_3,
+                    self.draw_marbles(4,1): self.marbles_bag_4}
+                    
+        sample, ll, updates = mh_sample(self.s_rng, [self.draw_marbles(4,1)], observations=givens)
+        sampler = theano.function([], sample, updates=updates)
+        
+        data = []
+        for i in range(100):
+            print i
+            data.append(sampler())
+        
+        pylab.hist(numpy.asarray(data))
+            
+# t = TestBayesianLogisticRegression()
+# t.setUp()
+# t.test_likelihood()
+
+t = TestHierarchicalBagBalls()
 t.setUp()
-t.test_likelihood()
+t.test_predictive()
