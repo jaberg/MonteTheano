@@ -283,10 +283,15 @@ def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.c
     alpha = tensor.as_tensor_variable(alpha)
     if dtype == None:
         dtype = tensor.scal.upcast(theano.config.floatX, alpha.dtype)
-    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, alpha)
+
+    # taken from raw_random.multinomial: until ellipsis is implemented (argh)
+    tmp = alpha.T[0].T
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, tmp)
+    bcast = bcast+(alpha.type.broadcastable[-1],)
+        
     op = tensor.raw_random.RandomFunction('dirichlet',
             tensor.TensorType(dtype=dtype, broadcastable=bcast))
-    
+        
     rstate = rstream.new_shared_rstate()
     new_rstate, out = op(rstate, draw_shape, alpha)
     rstream.add_default_update(out, rstate, new_rstate)

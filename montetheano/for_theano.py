@@ -196,47 +196,47 @@ def clone_get_equiv(i, o, replacements=None):
 	    d = {}
     else:
         d = replacements
-    
+
     for input in i:
         if input not in d:
             d[input] = input
-    
+
     for apply in graph.io_toposort(i, o):
         for input in apply.inputs:
             if input not in d:
                 d[input] = input
-        
+
         new_apply = apply.clone_with_new_inputs([d[i] for i in apply.inputs])
         if apply not in d:
             d[apply] = new_apply
-        
+
         for output, new_output in zip(apply.outputs, new_apply.outputs):
             if output not in d:
                 d[output] = new_output
-    
+
     for output in o:
         if output not in d:
             d[output] = output.clone()
-    
+
     return d
 
+#
+# SHAPE INFERENCE
+#
 
-def shape_infer_shape(self, node, ishapes):
-    return [(node.inputs[0].ndim,)]
-
+# Shape.infer_shape
 if not hasattr(theano.tensor.basic.Shape, 'infer_shape'):
+    def shape_infer_shape(self, node, ishapes):
+        return [(node.inputs[0].ndim,)]
     theano.tensor.basic.Shape.infer_shape = shape_infer_shape
 
-def makevector_infer_shape(self, node, ishapes):
-    print "mv", node.inputs, node.inputs[0].data
-    return [(node.inputs[0].data,)]
-
+# MakeVector.infer_shape
 if not hasattr(theano.tensor.opt.MakeVector, 'infer_shape'):
+    def makevector_infer_shape(self, node, ishapes):
+        return [(node.inputs[0].data,)]
     theano.tensor.opt.MakeVector.infer_shape = makevector_infer_shape
 
 def infer_shape_helper(v, assume_shared_size_fixed):
-    print "v", v
-    
     if not isinstance(v.type, tensor.TensorType):
         return None
 
@@ -245,14 +245,8 @@ def infer_shape_helper(v, assume_shared_size_fixed):
             output_pos = v.owner.outputs.index(v)
         else:
             output_pos = 0
-    
-        print "ish ->"
         ishapes = [infer_shape_helper(i, assume_shared_size_fixed)
                 for i in v.owner.inputs]
-        print "ish <-", ishapes
-                
-        print "pos", output_pos
-        print v.owner.op.infer_shape(v.owner, ishapes)
         return v.owner.op.infer_shape(v.owner, ishapes)[output_pos]
 
 
@@ -266,18 +260,18 @@ def infer_shape_helper(v, assume_shared_size_fixed):
             raise ValueError('shared var')
 
 def infer_shape(v, assume_shared_size_fixed=True):
-    print v
-    
     rval = infer_shape_helper(v, assume_shared_size_fixed)
     if None is rval:
         raise TypeError('some ancestor was not a TensorType var')
     def as_int(o):
-        if hasattr(o, 'type'):
+        if hasattr(o, 'data'):
             return int(o.data)
+        elif hasattr(o, 'type'):
+            f = theano.function([], o,
+                    mode=theano.Mode(linker='py', optimizer=None))
+            return f()
         else:
             return int(o)
-            
-    print rval
     return tuple([as_int(r) for r in rval])
 
 
