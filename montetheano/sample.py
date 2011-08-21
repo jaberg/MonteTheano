@@ -65,8 +65,6 @@ def mh_sample(s_rng, outputs, observations = {}):
     free_RVs = [v for v in RVs if v not in observations]
 
     # TODO: sample from the prior to initialize these guys?
-    # free_RVs_state = [theano.shared(v) for v in free_RVs]
-    # TODO: how do we infer shape?
     free_RVs_state = [theano.shared(0.5*numpy.ones(shape=infer_shape(v))) for v in free_RVs]
     free_RVs_prop = [s_rng.normal(0, .1, draw_shape=infer_shape(v)) for v in free_RVs]
 
@@ -82,7 +80,6 @@ def mh_sample(s_rng, outputs, observations = {}):
 
         full_observations = dict(observations)
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, proposals)]))
-
         new_log_likelihood = full_log_likelihood(full_observations)
 
         accept = tensor.or_(new_log_likelihood > ll, U <= tensor.exp(new_log_likelihood - ll))
@@ -116,8 +113,8 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
 
     free_RVs = [v for v in RVs if v not in observations]
     
-    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=())) for v in free_RVs]    
-    free_RVs_prop = [s_rng.normal(0, 1) for v in free_RVs]    
+    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=infer_shape(v))) for v in free_RVs]
+    free_RVs_prop = [s_rng.normal(0, 1, draw_shape=infer_shape(v)) for v in free_RVs]
     
     log_likelihood = theano.shared(numpy.array(float('-inf')))
     
@@ -134,7 +131,9 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
         H = tensor.add(*[tensor.sum(tensor.sqr(p)) for p in proposals])/2. + loglik
 
 # -- this should be an inner loop
-        g = tensor.grad(loglik, frvs)
+        g = []
+        g.append(tensor.grad(loglik, frvs))
+        
         proposals = [(p - epsilon*g/2.) for p, g in zip(proposals, g)]
 
         rvsp = [(rvs + epsilon*rvp) for rvs,rvp in zip(frvs, proposals)]
@@ -143,7 +142,8 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, rvsp)]))
         new_loglik = -full_log_likelihood(full_observations)
         
-        gnew = tensor.grad(new_loglik, rvsp)
+        gnew = []
+        gnew.append(tensor.grad(new_loglik, rvsp))
         proposals = [(p - epsilon*gn/2.) for p, gn in zip(proposals, gnew)]
 # --
         

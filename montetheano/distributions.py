@@ -29,8 +29,9 @@ from rstreams import rng_register
 def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtype=theano.config.floatX):
     rstate = rstream.new_shared_rstate()
 
-    if isinstance(draw_shape, (list, tuple)):
-        draw_shape = tensor.stack(*draw_shape)
+    # James: why is this required? fails in draw_shape is not provided
+    # if isinstance(draw_shape, (list, tuple)):
+    #     draw_shape = tensor.stack(*draw_shape)
 
     new_rstate, out = tensor.raw_random.uniform(rstate, draw_shape, low, high, ndim, dtype)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -71,8 +72,9 @@ def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=0, dtype=No
         sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
 
-    if isinstance(draw_shape, (list, tuple)):
-        draw_shape = tensor.stack(*draw_shape)
+    # James: why is this required? fails in draw_shape is not provided
+    # if isinstance(draw_shape, (list, tuple)):
+    #     draw_shape = tensor.stack(*draw_shape)
 
     new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -123,9 +125,6 @@ def binomial_sampler(rstream, n=1, p=0.5, ndim=0, draw_shape=None, dtype=theano.
     if not isinstance(p, theano.Variable):
         p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
-
-    if isinstance(draw_shape, (list, tuple)):
-        draw_shape = tensor.stack(*draw_shape)
 
     new_rstate, out = tensor.raw_random.binomial(rstate, draw_shape, n, p, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -261,16 +260,14 @@ class LogGamma(theano.Op):
     return hash(type(self))
 
   def make_node(self, x):
-    x_ = tensor.as_tensor_variable(x)
+    x_ = tensor.as_tensor_variable(x).astype(theano.config.floatX)    
     return theano.Apply(self,
       inputs=[x_],
       outputs=[x_.type()])
 
   def perform(self, node, inputs, output_storage):
     x, = inputs
-    y = output_storage[0][0] = x.copy()
-    for i in range(2,len(x)):
-      y[i] = scipy.special.gammaln(x[i])
+    output_storage[0][0] = scipy.special.gammaln(x)
 
 logGamma = LogGamma()
 
@@ -280,17 +277,17 @@ logGamma = LogGamma()
 
 @rng_register
 def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    tmp = alpha.T[0].T
+
     alpha = tensor.as_tensor_variable(alpha)
     if dtype == None:
         dtype = tensor.scal.upcast(theano.config.floatX, alpha.dtype)
-
-    # taken from raw_random.multinomial: until ellipsis is implemented (argh)
-    tmp = alpha.T[0].T
+        
     ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, tmp)
     bcast = bcast+(alpha.type.broadcastable[-1],)
-        
+    
     op = tensor.raw_random.RandomFunction('dirichlet',
-            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+            tensor.TensorType(dtype=dtype, broadcastable=bcast), ndim_added=1)
         
     rstate = rstream.new_shared_rstate()
     new_rstate, out = op(rstate, draw_shape, alpha)
@@ -315,7 +312,8 @@ def gamma_sampler(rstream, k, theta, draw_shape=None, ndim=None, dtype=theano.co
     k = tensor.as_tensor_variable(k)
     theta = tensor.as_tensor_variable(theta)
     if dtype == None:
-        dtype = tensor.scal.upcast(theano.config.floatX, k.dtype, theta.dtype)
+        dtype = tensor.scal.upcast(theano.config.floatX, k.dtype, theta.dtype)    
+        
     ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, k, theta)
     op = tensor.raw_random.RandomFunction('gamma',
             tensor.TensorType(dtype=dtype, broadcastable=bcast))
@@ -329,7 +327,7 @@ def gamma_sampler(rstream, k, theta, draw_shape=None, ndim=None, dtype=theano.co
 def gamma_lpdf(node, x, kw):
     r, shape, a, b = node.inputs
 
-    return (a-1)*tensor.log(x) - x/b - numpy.lngamma(a) - a*tensor.log(b)
+    return (a-1)*tensor.log(x) - x/b - logGamma(a) - a*tensor.log(b)
     
 # ---------
 # Multinomial
@@ -343,9 +341,6 @@ def multinomial_sampler(rstream, n=1, p=[0.5, 0.5], draw_shape=None, ndim=None, 
         p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
     rstate = rstream.new_shared_rstate()
 
-    if isinstance(draw_shape, (list, tuple)):
-        draw_shape = tensor.stack(*draw_shape)
-
     new_rstate, out = tensor.raw_random.multinomial(rstate, draw_shape, n, p, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
@@ -357,8 +352,18 @@ def logFactorial(x):
 def multinomial_lpdf(node, x, kw):
     r, shape, n, p = node.inputs
 
-    assert n == tensor.sum(x)
+    # TODO: how do I check this ?
+    # assert n == tensor.sum(x)
     
     return logFactorial(n) - tensor.sum(logFactorial(x)) + tensor.sum(tensor.log(p)*x)
+
+# some weirdness because raw_random uses a helper function
+# TODO: is there a clear way to fix this ?
+@rng_register
+def multinomial_helper_sampler(*args, **kwargs):
+    return multinomial_sampler(*args, **kwargs)
     
+@rng_register
+def multinomial_helper_lpdf(*args, **kwargs):
+    return multinomial_lpdf(*args, **kwargs)
     

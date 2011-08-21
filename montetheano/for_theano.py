@@ -233,7 +233,7 @@ if not hasattr(theano.tensor.basic.Shape, 'infer_shape'):
 # MakeVector.infer_shape
 if not hasattr(theano.tensor.opt.MakeVector, 'infer_shape'):
     def makevector_infer_shape(self, node, ishapes):
-        return [(node.inputs[0].data,)]
+        return [(node.inputs[0],)]
     theano.tensor.opt.MakeVector.infer_shape = makevector_infer_shape
 
 def infer_shape_helper(v, assume_shared_size_fixed):

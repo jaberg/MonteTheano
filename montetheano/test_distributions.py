@@ -8,8 +8,25 @@ from rstreams import RandomStreams
 import distributions
 from sample import rejection_sample, mh_sample, hybridmc_sample
 from rv import full_log_likelihood
+import for_theano
 
 import pylab
+
+def test_dirichlet():
+    R = RandomStreams(234)
+    n = R.dirichlet(alpha=numpy.ones(10,), draw_shape=(5,))
+    
+    f = theano.function([], n)
+    
+    assert f().shape == (5, 10)
+
+def test_multinomial():
+    R = RandomStreams(234)
+    n = R.multinomial(5, numpy.ones(5,)/5, draw_shape=(2,))
+    
+    f = theano.function([], n)
+    
+    assert f().shape == (2, 5)
 
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
@@ -218,8 +235,8 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
         pylab.contour(X, Y, numpy.exp(numpy.asarray(response)).reshape(X.shape), 20)            
         pylab.draw()
 
-        sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
-        # sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
+        # sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
+        sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
 
         sampler = theano.function([], sample + [ll] , updates=updates, givens={self.x: self.X_data}, allow_input_downcast=True)
         out = theano.function([self.w, self.x], self.y, allow_input_downcast=True)
@@ -230,10 +247,10 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
         X, Y = numpy.meshgrid(x, y)
 
         b = numpy.zeros(X.shape)
-        for i in range(500):
+        for i in range(1000):
             w, ll = sampler()            
 
-            if i % 10 == 0:
+            if i % 50 == 0:
                 pylab.figure(1)            
                 pylab.plot(w[0], w[1], 'x')
                 pylab.draw()
@@ -278,53 +295,49 @@ class Fitting1D(unittest.TestCase):
         l,h = f()
         assert numpy.allclose([l,h], [0.0, 1.01])
 
-
 class TestHierarchicalBagBalls(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
 
         # (define phi (dirichlet '(1 1 1 1 1)))
-        self.phi = s_rng.dirichlet([1, 1, 1, 1, 1])
+        # self.phi = s_rng.dirichlet(numpy.asarray([1, 1, 1, 1, 1]))
         # (define alpha (gamma 2 2))
-        self.alpha = s_rng.gamma(2, 2)
+        # self.alpha = s_rng.gamma(2, 2)
         
         # (define prototype (map (lambda (w) (* alpha w)) phi))
-        
-        print self.phi
-        print self.alpha
-        self.prototype = self.phi*self.alpha
+        # self.prototype = self.phi*self.alpha
 
         # (define bag->prototype
         #   (mem (lambda (bag) (dirichlet prototype))))
-        self.bag_prototype = lambda bag: s_rng.dirichlet(self.prototype)
+        self.bag_prototype = lambda bag: numpy.asarray([1, 1, 1, 1, 1])/5 #s_rng.dirichlet(self.prototype)
         
         # (define (draw-marbles bag num-draws)
         #   (repeat num-draws
         #           (lambda () (multinomial colors (bag->prototype bag)))))
-        self.draw_marbles = lambda bag, nr: s_rng.multinomial(nr, self.bag_prototype(bag), draw_shape=(nr,))
+        self.draw_marbles = lambda bag, nr: s_rng.multinomial(1, self.bag_prototype(bag), draw_shape=(nr,))
 
         #  (equal? (draw-marbles 'bag-1 6) '(blue blue blue blue blue blue))
         #  (equal? (draw-marbles 'bag-2 6) '(green green green green green green))
         #  (equal? (draw-marbles 'bag-3 6) '(red red red red red red))
         #  (equal? (draw-marbles 'bag-4 1) '(orange))        
-        self.marbles_bag_1 = tensor.as_tensor_variable([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]])
-        self.marbles_bag_2 = tensor.as_tensor_variable([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]])
-        self.marbles_bag_3 = tensor.as_tensor_variable([[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0]])
-        self.marbles_bag_4 = tensor.as_tensor_variable([[0],[0],[0],[0],[1]])
+        self.marbles_bag_1 = numpy.asarray([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
+        self.marbles_bag_2 = numpy.asarray([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
+        self.marbles_bag_3 = numpy.asarray([[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
+        self.marbles_bag_4 = numpy.asarray([[0, 0],[0, 0],[0, 0],[0, 0],[1, 1]], dtype=theano.config.floatX).T 
 
-    def test_predictive(self):
+    def test_predictive(self):        
         givens = {self.draw_marbles(1,6): self.marbles_bag_1,
                     self.draw_marbles(2,6): self.marbles_bag_2,
                     self.draw_marbles(3,6): self.marbles_bag_3,
-                    self.draw_marbles(4,1): self.marbles_bag_4}
+                    self.draw_marbles(4,2): self.marbles_bag_4}
                     
-        sample, ll, updates = mh_sample(self.s_rng, [self.draw_marbles(4,1)], observations=givens)
+        sample, ll, updates = mh_sample(self.s_rng, [self.draw_marbles(4,2)], observations=givens)
         sampler = theano.function([], sample, updates=updates)
         
         data = []
         for i in range(100):
-            print i
-            data.append(sampler())
+            print "SAMPLE", i, sampler()
+            # data.append(sampler())
         
         pylab.hist(numpy.asarray(data))
             
