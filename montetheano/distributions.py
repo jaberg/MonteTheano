@@ -9,16 +9,13 @@ import theano
 import scipy
 import scipy.special
 from theano import tensor
-from for_theano import elemwise_cond
-from for_theano import ancestors
+from for_theano import elemwise_cond, ancestors, infer_shape, evaluate
 from rstreams import rng_register
 
 # TODOs:
 # - Additional distributions of interest:
-#   - Multinomial
 #   - Wishart
 #   - Dirichlet process / CRP
-# - Proposal distributions
 
 # -------
 # Uniform
@@ -27,6 +24,8 @@ from rstreams import rng_register
 
 @rng_register
 def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtype=theano.config.floatX):
+    low = tensor.as_tensor_variable(low)
+    high = tensor.as_tensor_variable(high)
     rstate = rstream.new_shared_rstate()
 
     # James: why is this required? fails in draw_shape is not provided
@@ -65,18 +64,16 @@ def uniform_params(node):
 
 
 @rng_register
-def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=0, dtype=None):
-    if not isinstance(mu, theano.Variable):
-        mu = tensor.shared(numpy.asarray(mu, dtype=theano.config.floatX))
-    if not isinstance(sigma, theano.Variable):
-        sigma = tensor.shared(numpy.asarray(sigma, dtype=theano.config.floatX))
+def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=None):
+    mu = tensor.as_tensor_variable(mu)
+    sigma = tensor.as_tensor_variable(sigma)
     rstate = rstream.new_shared_rstate()
 
     # James: why is this required? fails in draw_shape is not provided
     # if isinstance(draw_shape, (list, tuple)):
     #     draw_shape = tensor.stack(*draw_shape)
 
-    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
+    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, ndim, dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -112,6 +109,10 @@ def normal_ml(node, sample, weights):
 def normal_params(node):
     rstate, shape, mu, sigma = node.inputs
     return [mu, sigma]
+
+@rng_register
+def normal_proposal(rstream, node, sample, kw):
+    return rstream.normal(sample, 0.1, draw_shape = infer_shape(node.outputs[1]))
 
 
 # ---------
@@ -150,31 +151,20 @@ def binomial_params(node):
 
 
 @rng_register
-def lognormal_sampler(s_rstate, mu=0.0, sigma=1.0, shape=None, ndim=None, dtype=theano.config.floatX):
-    """
-    Sample from a normal distribution centered on avg with
-    the specified standard deviation (std).
-
-    If the size argument is ambiguous on the number of dimensions, ndim
-    may be a plain integer to supplement the missing information.
-
-    If size is None, the output shape will be determined by the shapes
-    of avg and std.
-
-    If dtype is not specified, it will be inferred from the dtype of
-    avg and std, but will be at least as precise as floatX.
-    """
+def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
     mu = tensor.as_tensor_variable(mu)
     sigma = tensor.as_tensor_variable(sigma)
     if dtype == None:
-        dtype = tensor.scal.upcast(
-                theano.config.floatX, mu.dtype, sigma.dtype)
-    ndim, shape, bcast = tensor.raw_random._infer_ndim_bcast(
-            ndim, shape, mu, sigma)
+        dtype = tensor.scal.upcast(theano.config.floatX, mu.dtype, sigma.dtype)    
+        
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, mu, sigma)
     op = tensor.raw_random.RandomFunction('lognormal',
             tensor.TensorType(dtype=dtype, broadcastable=bcast))
-    return op(s_rstate, shape, mu, sigma)
-
+            
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = op(rstate, draw_shape, mu, sigma)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
 @rng_register
 def lognormal_lpdf(node, x, kw):
@@ -182,7 +172,6 @@ def lognormal_lpdf(node, x, kw):
     Z = sigma * x * numpy.sqrt(2 * numpy.pi)
     E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
     return -E - tensor.log(Z)
-
 
 # -----------
 # Categorical
@@ -252,22 +241,48 @@ def categorical_lpdf(node, sample, kw):
 # LogGamma helper Op
 # ---------
 
+# class PolyGamma(theano.Op):
+#     def __eq__(self, other):
+#         return type(self) == type(other)
+# 
+#     def __hash__(self):
+#         return hash(type(self))
+# 
+#     def make_node(self, x):
+#         x_ = tensor.as_tensor_variable(x).astype(theano.config.floatX)    
+#         return theano.Apply(self,
+#             inputs=[x_],
+#             outputs=[x_.type()])
+# 
+#     def perform(self, node, inputs, output_storage):      
+#         x, = inputs
+#         output_storage[0][0] = numpy.asarray(scipy.special.polygamma(0, x), dtype=node.outputs[0].dtype)
+#         
+# polyGamma = PolyGamma()
+
 class LogGamma(theano.Op):
-  def __eq__(self, other):
-    return type(self) == type(other)
+    def __eq__(self, other):
+        return type(self) == type(other)
 
-  def __hash__(self):
-    return hash(type(self))
+    def __hash__(self):
+        return hash(type(self))
 
-  def make_node(self, x):
-    x_ = tensor.as_tensor_variable(x).astype(theano.config.floatX)    
-    return theano.Apply(self,
-      inputs=[x_],
-      outputs=[x_.type()])
+    def make_node(self, x):
+        x_ = tensor.as_tensor_variable(x).astype(theano.config.floatX)    
+        return theano.Apply(self,
+            inputs=[x_],
+            outputs=[x_.type()])
 
-  def perform(self, node, inputs, output_storage):
-    x, = inputs
-    output_storage[0][0] = scipy.special.gammaln(x)
+    def perform(self, node, inputs, output_storage):      
+        x, = inputs
+        output_storage[0][0] = numpy.asarray(numpy.log(scipy.special.gamma(x)), dtype=node.outputs[0].dtype)
+        # output_storage[0][0] = numpy.asarray(scipy.special.gammaln(x), dtype=node.outputs[0].dtype)
+
+    # TODO: is this correct ?
+    # def grad(self, inp, grads):
+    #     s, = inp
+    #     dt, = grads        
+    #     return [polyGamma(s)*dt]
 
 logGamma = LogGamma()
 
@@ -279,7 +294,7 @@ logGamma = LogGamma()
 def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.config.floatX):
     tmp = alpha.T[0].T
 
-    alpha = tensor.as_tensor_variable(alpha)
+    alpha = tensor.as_tensor_variable(alpha).astype(theano.config.floatX)
     if dtype == None:
         dtype = tensor.scal.upcast(theano.config.floatX, alpha.dtype)
         
@@ -301,7 +316,17 @@ def logBeta(alpha):
 def dirichlet_lpdf(node, sample, kw):
     r, shape, alpha = node.inputs
 
-    return -logBeta(alpha) + tensor.sum(tensor.log(sample)*(alpha-1))
+    # assert sum(sample) == 1
+    
+    stable = tensor.eq(0, (tensor.sum(alpha <= 0.) + tensor.sum(sample <= 0.)))    
+    ll = -logBeta(alpha) + tensor.sum(tensor.log(sample)*(alpha-1.), axis=0)    
+    return tensor.switch(stable, ll, tensor.as_tensor_variable(float('-inf')))
+            
+@rng_register
+def dirichlet_proposal(rstream, node, sample, kw):
+    r, shape, alpha = node.inputs
+    return rstream.dirichlet(alpha*5., draw_shape=())
+    # return node.outputs[1]
     
 # ---------
 # Gamma
@@ -325,10 +350,14 @@ def gamma_sampler(rstream, k, theta, draw_shape=None, ndim=None, dtype=theano.co
 
 @rng_register
 def gamma_lpdf(node, x, kw):
-    r, shape, a, b = node.inputs
+    r, shape, k, theta = node.inputs
 
-    return (a-1)*tensor.log(x) - x/b - logGamma(a) - a*tensor.log(b)
+    return tensor.log(x)*(k-1.) - x/theta - tensor.log(theta)*k - logGamma(k)
     
+@rng_register
+def gamma_proposal(rstream, node, sample, kw):
+    return rstream.lognormal(tensor.log(sample), 1.)
+
 # ---------
 # Multinomial
 # ---------
@@ -346,7 +375,7 @@ def multinomial_sampler(rstream, n=1, p=[0.5, 0.5], draw_shape=None, ndim=None, 
     return out
 
 def logFactorial(x):
-    return logGamma(x+1)
+    return logGamma(x+1.)
     
 @rng_register
 def multinomial_lpdf(node, x, kw):
@@ -354,8 +383,14 @@ def multinomial_lpdf(node, x, kw):
 
     # TODO: how do I check this ?
     # assert n == tensor.sum(x)
+        
+    x = tensor.as_tensor_variable(x).astype(theano.config.floatX)    
     
-    return logFactorial(n) - tensor.sum(logFactorial(x)) + tensor.sum(tensor.log(p)*x)
+    return logFactorial(n) - tensor.sum(logFactorial(x), axis=1) + tensor.sum(tensor.log(p)*x, axis=1)
+
+@rng_register
+def multinomial_proposal(rstream, node, sample, kw):
+    return node.outputs[1]
 
 # some weirdness because raw_random uses a helper function
 # TODO: is there a clear way to fix this ?
@@ -366,4 +401,8 @@ def multinomial_helper_sampler(*args, **kwargs):
 @rng_register
 def multinomial_helper_lpdf(*args, **kwargs):
     return multinomial_lpdf(*args, **kwargs)
-    
+
+@rng_register
+def multinomial_helper_proposal(*args, **kwargs):
+    return multinomial_proposal(*args, **kwargs)
+        

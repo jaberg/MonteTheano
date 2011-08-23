@@ -4,11 +4,16 @@ import theano
 from theano import tensor
 from theano.gof import graph
 
+def evaluate(var):
+    f = theano.function([], var, mode=theano.Mode(linker='py', optimizer=None))
+    return f()
+
 def as_variable(thing, type=None):
     if isinstance(thing, theano.Variable):
         if type is None or thing.type == type:
             return thing
         else:
+            print thing, thing.type, type
             raise TypeError(thing)
     if hasattr(thing, 'type'):
         if type is None or thing.type == type:

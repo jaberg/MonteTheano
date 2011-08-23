@@ -6,7 +6,7 @@ import numpy
 import theano
 from theano import tensor
 from for_theano import ancestors, infer_shape
-from rv import is_raw_rv, full_log_likelihood
+from rv import is_raw_rv, full_log_likelihood, lpdf
 
 
 # Major TODOs:
@@ -64,31 +64,38 @@ def mh_sample(s_rng, outputs, observations = {}):
     RVs = [v for v in all_vars if is_raw_rv(v)]
     free_RVs = [v for v in RVs if v not in observations]
 
-    # TODO: sample from the prior to initialize these guys?
-    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=infer_shape(v))) for v in free_RVs]
-    free_RVs_prop = [s_rng.normal(0, .1, draw_shape=infer_shape(v)) for v in free_RVs]
+    # Draw sample from the proposal
+    free_RVs_state = []
+    for v in free_RVs:
+        f = theano.function([], v,
+                mode=theano.Mode(linker='py', optimizer=None))
+        free_RVs_state.append(theano.shared(f()))
+
+    # free_RVs_state = [theano.shared(numpy.ones(shape=infer_shape(v)), broadcastable=tuple(numpy.asarray(infer_shape(v))==1)) for v in free_RVs]
 
     log_likelihood = theano.shared(numpy.array(float('-inf')))
 
-    U = s_rng.uniform(low=0, high=1.0)
+    U = s_rng.uniform(low=0.0, high=1.0)
 
-    # TODO: can we pre-generate the noise
     def mcmc(ll, *frvs):
-        # TODO: implement generic proposal distributions
-        # TODO: how do we infer shape?
-        proposals = [(rvs + rvp) for rvs,rvp in zip(free_RVs_state, free_RVs_prop)]
+        proposals = [s_rng.local_proposal(v, rvs) for v, rvs in zip(free_RVs, frvs)]
+        proposals_rev = [s_rng.local_proposal(v, rvs) for v, rvs in zip(free_RVs, proposals)]
 
         full_observations = dict(observations)
         full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, proposals)]))
         new_log_likelihood = full_log_likelihood(full_observations)
 
-        accept = tensor.or_(new_log_likelihood > ll, U <= tensor.exp(new_log_likelihood - ll))
-
+        logratio = new_log_likelihood - ll \
+            + tensor.add(*[tensor.sum(lpdf(p, r)) for p, r in zip(proposals_rev, frvs)]) \
+            - tensor.add(*[tensor.sum(lpdf(p, r)) for p, r in zip(proposals, proposals)])
+                   
+        accept = tensor.gt(logratio, tensor.log(U))
+        
         return [tensor.switch(accept, new_log_likelihood, ll)] + \
                [tensor.switch(accept, p, f) for p, f in zip(proposals, frvs)], \
                {}, theano.scan_module.until(accept)
 
-    samples, updates = theano.scan(mcmc, outputs_info = [log_likelihood] + free_RVs_state, n_steps = 10000000)
+    samples, updates = theano.scan(mcmc, outputs_info = [log_likelihood] + free_RVs_state, n_steps = 100)
     updates[log_likelihood] = samples[0][-1]
     updates.update(dict([(f, s[-1]) for f, s in zip(free_RVs_state, samples[1:])]))
     
@@ -113,7 +120,7 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
 
     free_RVs = [v for v in RVs if v not in observations]
     
-    free_RVs_state = [theano.shared(0.5*numpy.ones(shape=infer_shape(v))) for v in free_RVs]
+    free_RVs_state = [theano.shared(numpy.ones(shape=infer_shape(v)), broadcastable=tuple(numpy.asarray(infer_shape(v))==1)) for v in free_RVs]
     free_RVs_prop = [s_rng.normal(0, 1, draw_shape=infer_shape(v)) for v in free_RVs]
     
     log_likelihood = theano.shared(numpy.array(float('-inf')))
