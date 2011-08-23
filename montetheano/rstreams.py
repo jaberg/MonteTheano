@@ -62,8 +62,14 @@ class RandomStreams(ClobberContext):
 
     def sample(self, dist_name, *args, **kwargs):
         handler = samplers[dist_name]
-        if 'draw_shape' not in kwargs:
-            kwargs['draw_shape'] = self.draw_shape
+        if 'draw_shape' in kwargs:
+            draw_shape = kwargs['draw_shape']
+            if isinstance(draw_shape, (list, tuple)) and draw_shape:
+                 draw_shape = tensor.stack(*draw_shape)
+        else:
+            draw_shape = self.draw_shape
+
+        kwargs['draw_shape'] = draw_shape
         out = handler(self, *args, **kwargs)
         return out
 

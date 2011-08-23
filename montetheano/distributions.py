@@ -69,11 +69,7 @@ def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype
     sigma = tensor.as_tensor_variable(sigma)
     rstate = rstream.new_shared_rstate()
 
-    # James: why is this required? fails in draw_shape is not provided
-    # if isinstance(draw_shape, (list, tuple)):
-    #     draw_shape = tensor.stack(*draw_shape)
-
-    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, ndim, dtype)
+    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -152,16 +148,31 @@ def binomial_params(node):
 
 @rng_register
 def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    """
+    Sample from a normal distribution centered on avg with
+    the specified standard deviation (std).
+
+    If the size argument is ambiguous on the number of dimensions, ndim
+    may be a plain integer to supplement the missing information.
+
+    If size is None, the output shape will be determined by the shapes
+    of avg and std.
+
+    If dtype is not specified, it will be inferred from the dtype of
+    avg and std, but will be at least as precise as floatX.
+    """
     mu = tensor.as_tensor_variable(mu)
     sigma = tensor.as_tensor_variable(sigma)
+
     if dtype == None:
-        dtype = tensor.scal.upcast(theano.config.floatX, mu.dtype, sigma.dtype)    
-        
-    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, mu, sigma)
+        dtype = tensor.scal.upcast(
+                theano.config.floatX, mu.dtype, sigma.dtype)
+    rstate = rstream.new_shared_rstate()
+
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(
+            ndim, draw_shape, mu, sigma)
     op = tensor.raw_random.RandomFunction('lognormal',
             tensor.TensorType(dtype=dtype, broadcastable=bcast))
-            
-    rstate = rstream.new_shared_rstate()
     new_rstate, out = op(rstate, draw_shape, mu, sigma)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
@@ -196,32 +207,41 @@ class Categorical(theano.Op):
     def __hash__(self):
         return hash((type(self), self.destructive, self.otype))
 
-    def make_node(self, s_rstate, p):
+    def make_node(self, s_rstate, p, draw_shape):
         p = tensor.as_tensor_variable(p)
-        if p.ndim != 1: raise NotImplementedError()
         return theano.gof.Apply(self,
                 [s_rstate, p],
                 [s_rstate.type(), self.otype()])
 
     def perform(self, node, inputs, outstor):
-        rng, p = inputs
+        rng, p, shp = inputs
         if not self.destructive:
             rng = copy.deepcopy(rng)
-        counts = rng.multinomial(pvals=p, n=1)
-        oval = numpy.where(counts)[0][0]
+        n_draws = numpy.prod(shp)
+        rval = [numpy.where(rng.multinomial(pvals=p, n=1))[0][0]
+                for i in xrange(n_draws)]
+        rval = numpy.asarray(rval, dtype=self.otype.dtype)
+        rval.shape = shp
         outstor[0][0] = rng
-        outstor[1][0] = self.otype.filter(oval, allow_downcast=True)
+        outstor[1][0] = self.otype.filter(rval, allow_downcast=True)
 
 
 @rng_register
-def categorical_sampler(rstate, p, shape=None, ndim=None, dtype='int32'):
-    if shape != None:
+def categorical_sampler(rstream, p, draw_shape, dtype='int32'):
+    if not isinstance(p, theano.Variable):
+        p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
+    if p.ndim != 1:
         raise NotImplementedError()
+    if draw_shape.ndim != 1:
+        raise TypeError()
     op = Categorical(False,
             tensor.TensorType(
-                broadcastable=(),
+                broadcastable=(False,)* tensor.get_vector_length(draw_shape),
                 dtype=dtype))
-    return op(rstate, p)
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = op(rstate, p, draw_shape)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
 
 
 @rng_register
@@ -405,4 +425,3 @@ def multinomial_helper_lpdf(*args, **kwargs):
 @rng_register
 def multinomial_helper_proposal(*args, **kwargs):
     return multinomial_proposal(*args, **kwargs)
-        
