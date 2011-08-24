@@ -47,13 +47,6 @@ def rejection_sample(outputs, condition = None):
     return sample, updates
 
 def mh_sample(s_rng, outputs, observations = {}):
-    # TODO: should there be a size variable here?
-    # TODO: implement lag and burn-in
-    # TODO: implement size
-    """
-    Return a dictionary mapping random variables to their sample values.
-    """
-
     all_vars = ancestors(list(outputs) + list(observations.keys()))
     
     for o in observations:
@@ -70,8 +63,6 @@ def mh_sample(s_rng, outputs, observations = {}):
         f = theano.function([], v,
                 mode=theano.Mode(linker='py', optimizer=None))
         free_RVs_state.append(theano.shared(f()))
-
-    # free_RVs_state = [theano.shared(numpy.ones(shape=infer_shape(v)), broadcastable=tuple(numpy.asarray(infer_shape(v))==1)) for v in free_RVs]
 
     log_likelihood = theano.shared(numpy.array(float('-inf')))
 

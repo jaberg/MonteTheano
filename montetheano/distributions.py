@@ -295,8 +295,7 @@ class LogGamma(theano.Op):
 
     def perform(self, node, inputs, output_storage):      
         x, = inputs
-        output_storage[0][0] = numpy.asarray(numpy.log(scipy.special.gamma(x)), dtype=node.outputs[0].dtype)
-        # output_storage[0][0] = numpy.asarray(scipy.special.gammaln(x), dtype=node.outputs[0].dtype)
+        output_storage[0][0] = numpy.asarray(scipy.special.gammaln(x), dtype=node.outputs[0].dtype)
 
     # TODO: is this correct ?
     # def grad(self, inp, grads):
@@ -344,9 +343,7 @@ def dirichlet_lpdf(node, sample, kw):
             
 @rng_register
 def dirichlet_proposal(rstream, node, sample, kw):
-    r, shape, alpha = node.inputs
-    return rstream.dirichlet(alpha*5., draw_shape=())
-    # return node.outputs[1]
+    return node.outputs[1]
     
 # ---------
 # Gamma
@@ -376,7 +373,8 @@ def gamma_lpdf(node, x, kw):
     
 @rng_register
 def gamma_proposal(rstream, node, sample, kw):
-    return rstream.lognormal(tensor.log(sample), 1.)
+    # return rstream.lognormal(tensor.log(sample), 1)
+    return node.outputs[1]
 
 # ---------
 # Multinomial
@@ -425,3 +423,36 @@ def multinomial_helper_lpdf(*args, **kwargs):
 @rng_register
 def multinomial_helper_proposal(*args, **kwargs):
     return multinomial_proposal(*args, **kwargs)
+
+# ---------
+# Dirichlet-Multinomial
+#
+# Only the LPDF is implemented, the sampler is bogus
+# ---------
+
+class DM(theano.Op):
+    dist_name = 'DM'
+    def __init__(self, otype):
+        self.otype = otype
+    
+    def make_node(self, s_rstate, alpha):
+        alpha = tensor.as_tensor_variable(alpha)
+        return theano.gof.Apply(self,
+                [s_rstate, alpha],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, output_storage):      
+        raise NotImplemented
+        
+@rng_register
+def DM_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=None):
+    shape = infer_shape(rstream.dirichlet(alpha, draw_shape=draw_shape))
+    rstate = rstream.new_shared_rstate()
+    op = DM(tensor.TensorType(broadcastable=(False,)* tensor.get_vector_length(shape), dtype=theano.config.floatX))
+    rs, out = op(rstate, alpha)
+    return out
+    
+@rng_register
+def DM_lpdf(node, sample, kw):
+    r, alpha = node.inputs
+    return logBeta(sample + alpha) - logBeta(alpha)

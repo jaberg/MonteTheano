@@ -316,27 +316,15 @@ class TestHierarchicalBagBalls(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
 
-        # (define phi (dirichlet '(1 1 1 1 1)))
-        self.phi = s_rng.dirichlet(numpy.asarray([1, 1, 1, 1, 1], dtype=theano.config.floatX)*2)
-        # (define alpha (gamma 2 2))
-        # self.alpha = s_rng.gamma(2., 2.)
-        
-        # (define prototype (map (lambda (w) (* alpha w)) phi))
-        self.prototype = self.phi #self.alpha
+        self.phi = s_rng.dirichlet(numpy.asarray([1, 1, 1, 1, 1]))
+        self.alpha = s_rng.gamma(2., 2.)        
+        self.prototype = self.phi*self.alpha
 
-        # (define bag->prototype
-        #   (mem (lambda (bag) (dirichlet prototype))))
         self.bag_prototype =  memoized(lambda bag: s_rng.dirichlet(self.prototype))
-        
-        # (define (draw-marbles bag num-draws)
-        #   (repeat num-draws
-        #           (lambda () (multinomial colors (bag->prototype bag)))))
         self.draw_marbles = lambda bag, nr: s_rng.multinomial(1, self.bag_prototype(bag), draw_shape=(nr,))
 
-        #  (equal? (draw-marbles 'bag-1 6) '(blue blue blue blue blue blue))
-        #  (equal? (draw-marbles 'bag-2 6) '(green green green green green green))
-        #  (equal? (draw-marbles 'bag-3 6) '(red red red red red red))
-        #  (equal? (draw-marbles 'bag-4 1) '(orange))        
+        # self.draw_marbles = memoized(lambda bag, nr: s_rng.DM(self.prototype, draw_shape=(nr,)))
+
         self.marbles_bag_1 = numpy.asarray([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
         self.marbles_bag_2 = numpy.asarray([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
         self.marbles_bag_3 = numpy.asarray([[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
@@ -351,116 +339,76 @@ class TestHierarchicalBagBalls(): #unittest.TestCase):
                     
                     
                     
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
         s_rng = self.s_rng
         observations = givens
+        output = self.draw_marbles(4,1)
         
-        all_vars = ancestors(list(observations.keys()))
+        all_vars = ancestors(list(observations.keys()) + list([output]))
             
+        data = []
         for o in observations:
             assert o in all_vars
             if not is_raw_rv(o):
+                # print o, o.owner, o.owner.inputs[0]
                 raise TypeError(o)
         
         RVs = [v for v in all_vars if is_raw_rv(v)]
         free_RVs = [v for v in RVs if v not in observations]
         
-        free_RVs_state = [theano.shared(numpy.ones(shape=infer_shape(v)), broadcastable=tuple(numpy.asarray(infer_shape(v))==1)) for v in free_RVs]
+        free_RVs_state = []
+        for v in free_RVs:
+            f = theano.function([], v,
+                    mode=theano.Mode(linker='py', optimizer=None))
+            free_RVs_state.append(theano.shared(f()))
         
-        log_likelihood = theano.shared(numpy.array(float('-inf')))
+        U = s_rng.uniform(low=0.0, high=1.0)
         
-        for i in range(1000):
-            proposals = [s_rng.local_proposal(v, rvs) for v, rvs in zip(free_RVs, free_RVs_state)]
-            frvs = [evaluate(p) for p in proposals]
-            proposals_rev = [s_rng.local_proposal(v, rvs) for v, rvs in zip(free_RVs, proposals)]
-            frvs_rev = [evaluate(p) for p in proposals_rev]
-        
+        rr = []
+        for index in range(len(free_RVs)):
+            print index
+
+            # TODO: why does the compiler crash when we try to expose the likelihood ?
             full_observations = dict(observations)
-            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, frvs)]))
-            new_log_likelihood = full_log_likelihood(full_observations)
-        
-            # theano.printing.debugprint(new_log_likelihood)
-            # assert not is_rv(new_log_likelihood)
-                        
-            nll = evaluate(new_log_likelihood)
-            ll = evaluate(log_likelihood)
-        
-            bw =  evaluate(tensor.add(*[tensor.sum(lpdf(p, r)) for p, r in zip(proposals_rev, free_RVs_state)]))
-            fw = evaluate(tensor.add(*[tensor.sum(lpdf(p, r)) for p, r in zip(proposals, frvs)]))
-        
-        
-            # print "---------"
-            # for rv, f in zip(free_RVs, free_RVs_state):
-            #     print evaluate(f)
-            #     print evaluate(rv.owner.inputs[2])
-            #     print evaluate(lpdf(rv, f))
-        
-            # for p, r in zip(proposals, frvs):
-            #     print evaluate(p)
-            #     print evaluate(p.owner.inputs[2])
-            #     print evaluate(lpdf(p, r))
-        
-            # 
-            # print "--"
-            # for rv, f in observations.items():
-            #     print evaluate(lpdf(rv, f))
-        
-            print evaluate(free_RVs_state[free_RVs.index(self.bag_prototype(4))])
+            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
+            log_likelihood = full_log_likelihood(full_observations)
             
-            print nll, ll, fw, bw, nll-ll+fw-bw
-            if (numpy.log(numpy.random.rand()) < nll-ll+bw-fw):
-                log_likelihood.set_value(nll)
-                for f, s in zip(free_RVs_state, frvs):
-                    f.set_value(s)
-                
+            proposal = s_rng.local_proposal(free_RVs[index], free_RVs_state[index])
+            proposal_rev = s_rng.local_proposal(free_RVs[index], proposal)
 
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-                    
-        sample, ll, updates = mh_sample(self.s_rng, [self.bag_prototype(4), self.bag_prototype(3)], observations=givens)
-        # sample, ll, updates = hybridmc_sample(self.s_rng, [self.draw_marbles(4,1)], observations=givens)
-        sampler = theano.function([], sample + [ll], updates=updates)
+            full_observations = dict(observations)
+            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
+            full_observations.update(dict([(free_RVs[index], proposal)]))
+            new_log_likelihood = full_log_likelihood(full_observations)
+
+            bw = tensor.sum(lpdf(proposal_rev, free_RVs_state[index]))
+            fw = tensor.sum(lpdf(proposal, proposal))
+
+            lr = new_log_likelihood-log_likelihood+bw-fw
+
+            accept = tensor.gt(lr, tensor.log(U))
+
+            updates = {free_RVs_state[index] : tensor.switch(accept, proposal, free_RVs_state[index])}
+
+            print free_RVs[index]            
+            rr.append(theano.function([], [accept], updates=updates))
         
-        data = []
-        for i in range(1000):
-            s, a, ll = sampler()
-            print i, s, a, ll
-            # if i % 50 == 0:
-            #     data.append(s)
+        for i in range(100*200+500):
+            print i
+            
+            accept = False
+            while not accept:
+                index = numpy.random.randint(len(free_RVs))
+
+                accept = rr[index]()            
+                if accept:
+                    data.append(free_RVs_state[free_RVs.index(output)].get_value())
         
-        pylab.hist(numpy.asarray(data).squeeze())
+        data = numpy.asarray(data).squeeze()
+        print data.shape
+        pylab.bar(range(5), data[500::100, :].sum(axis=0))
         pylab.show()
+                    
         
-# non-parametric latent class allocation?
-
-# class = CRP
-# prot = dirichlet(class)
-# vis = multinom(prot)
-
-    
 # t = TestBayesianLogisticRegression()
 # t.setUp()
 # t.test_likelihood()
