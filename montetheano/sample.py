@@ -161,3 +161,66 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
 
+def mh2_sample(s_rng, outputs, observations = {}):    
+    all_vars = ancestors(list(observations.keys()) + list(outputs))
+        
+    for o in observations:
+        assert o in all_vars
+        if not is_raw_rv(o):
+            raise TypeError(o)
+    
+    RVs = [v for v in all_vars if is_raw_rv(v)]
+    free_RVs = [v for v in RVs if v not in observations]
+    
+    free_RVs_state = []
+    for v in free_RVs:
+        f = theano.function([], v,
+                mode=theano.Mode(linker='py', optimizer=None))
+        free_RVs_state.append(theano.shared(f()))
+    
+    U = s_rng.uniform(low=0.0, high=1.0)
+    
+    rr = []
+    for index in range(len(free_RVs)):
+        # TODO: why does the compiler crash when we try to expose the likelihood ?
+        full_observations = dict(observations)
+        full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
+        log_likelihood = full_log_likelihood(full_observations)
+        
+        proposal = s_rng.local_proposal(free_RVs[index], free_RVs_state[index])
+        proposal_rev = s_rng.local_proposal(free_RVs[index], proposal)
+
+        full_observations = dict(observations)
+        full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
+        full_observations.update(dict([(free_RVs[index], proposal)]))
+        new_log_likelihood = full_log_likelihood(full_observations)
+
+        bw = tensor.sum(lpdf(proposal_rev, free_RVs_state[index]))
+        fw = tensor.sum(lpdf(proposal, proposal))
+
+        lr = new_log_likelihood-log_likelihood+bw-fw
+
+        accept = tensor.gt(lr, tensor.log(U))
+
+        updates = {free_RVs_state[index] : tensor.switch(accept, proposal, free_RVs_state[index])}
+        rr.append(theano.function([], [accept], updates=updates))
+    
+    def sampler(nr_samples, burnin = 100, lag = 100):
+        data = [[] for o in outputs]
+        for i in range(nr_samples*lag+burnin):        
+            accept = False
+            while not accept:
+                index = numpy.random.randint(len(free_RVs))
+
+                accept = rr[index]()            
+                if accept and i > burnin and (i-burnin) % lag == 0:
+                    print i
+                    for d, o in zip(data, outputs):
+                        # TODO: this can be optimized
+                        d.append(free_RVs_state[free_RVs.index(o)].get_value())
+        
+        data = [numpy.asarray(d).squeeze() for d in data]
+        
+        return data
+    
+    return sampler

@@ -8,6 +8,18 @@ def evaluate(var):
     f = theano.function([], var, mode=theano.Mode(linker='py', optimizer=None))
     return f()
 
+class memoized(object):
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
+    def __call__(self, *args):
+        try:
+            return self.cache[args]
+        except KeyError:
+            value = self.func(*args)
+            self.cache[args] = value
+            return value
+
 def as_variable(thing, type=None):
     if isinstance(thing, theano.Variable):
         if type is None or thing.type == type:
@@ -201,30 +213,30 @@ def clone_get_equiv(i, o, replacements=None):
 	    d = {}
     else:
         d = replacements
-
+    
     for input in i:
         if input not in d:
             d[input] = input
-
+    
     for apply in graph.io_toposort(i, o):
         for input in apply.inputs:
             if input not in d:
                 d[input] = input
-
+        
         new_apply = apply.clone_with_new_inputs([d[i] for i in apply.inputs])
         if apply not in d:
             d[apply] = new_apply
-
+        
         for output, new_output in zip(apply.outputs, new_apply.outputs):
             if output not in d:
                 d[output] = new_output
-
+    
     for output in o:
         if output not in d:
             d[output] = output.clone()
-
+    
     return d
-
+    
 #
 # SHAPE INFERENCE
 #

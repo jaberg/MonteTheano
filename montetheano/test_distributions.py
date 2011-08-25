@@ -6,10 +6,10 @@ from theano import tensor
 
 from rstreams import RandomStreams
 import distributions
-from sample import rejection_sample, mh_sample, hybridmc_sample
+from sample import rejection_sample, mh_sample, hybridmc_sample, mh2_sample
 from rv import is_rv, is_raw_rv, full_log_likelihood, lpdf
 import for_theano
-from for_theano import evaluate, ancestors, infer_shape
+from for_theano import evaluate, ancestors, infer_shape, memoized
 
 import pylab
 
@@ -236,8 +236,8 @@ class TestBayesianLogisticRegression(): #unittest.TestCase):
         pylab.contour(X, Y, numpy.exp(numpy.asarray(response)).reshape(X.shape), 20)            
         pylab.draw()
 
-        sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
-        # sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
+        # sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
+        sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
 
         sampler = theano.function([], sample + [ll] , updates=updates, givens={self.x: self.X_data}, allow_input_downcast=True)
         out = theano.function([self.w, self.x], self.y, allow_input_downcast=True)
@@ -296,22 +296,6 @@ class Fitting1D(unittest.TestCase):
         l,h = f()
         assert numpy.allclose([l,h], [0.0, 1.01])
         
-class memoized(object):
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
-    def __call__(self, *args):
-        try:
-            return self.cache[args]
-        except KeyError:
-            value = self.func(*args)
-            self.cache[args] = value
-            return value
-
-# Our MCMC sampler uses Gaussian proposals on
-# log(alpha), and proposals for  are drawn from a Dirichlet
-# distribution with the current  as its mean
-            
 class TestHierarchicalBagBalls(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -322,8 +306,6 @@ class TestHierarchicalBagBalls(): #unittest.TestCase):
 
         self.bag_prototype =  memoized(lambda bag: s_rng.dirichlet(self.prototype))
         self.draw_marbles = lambda bag, nr: s_rng.multinomial(1, self.bag_prototype(bag), draw_shape=(nr,))
-
-        # self.draw_marbles = memoized(lambda bag, nr: s_rng.DM(self.prototype, draw_shape=(nr,)))
 
         self.marbles_bag_1 = numpy.asarray([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
         self.marbles_bag_2 = numpy.asarray([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
@@ -336,83 +318,20 @@ class TestHierarchicalBagBalls(): #unittest.TestCase):
                     self.draw_marbles(3,6): self.marbles_bag_3,
                     self.draw_marbles(4,1): self.marbles_bag_4}
                     
-                    
-                    
-                    
-        s_rng = self.s_rng
-        observations = givens
-        output = self.draw_marbles(4,1)
-        
-        all_vars = ancestors(list(observations.keys()) + list([output]))
-            
-        data = []
-        for o in observations:
-            assert o in all_vars
-            if not is_raw_rv(o):
-                # print o, o.owner, o.owner.inputs[0]
-                raise TypeError(o)
-        
-        RVs = [v for v in all_vars if is_raw_rv(v)]
-        free_RVs = [v for v in RVs if v not in observations]
-        
-        free_RVs_state = []
-        for v in free_RVs:
-            f = theano.function([], v,
-                    mode=theano.Mode(linker='py', optimizer=None))
-            free_RVs_state.append(theano.shared(f()))
-        
-        U = s_rng.uniform(low=0.0, high=1.0)
-        
-        rr = []
-        for index in range(len(free_RVs)):
-            print index
+        sampler = mh2_sample(self.s_rng, [self.draw_marbles(4,1)], givens)            
 
-            # TODO: why does the compiler crash when we try to expose the likelihood ?
-            full_observations = dict(observations)
-            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
-            log_likelihood = full_log_likelihood(full_observations)
-            
-            proposal = s_rng.local_proposal(free_RVs[index], free_RVs_state[index])
-            proposal_rev = s_rng.local_proposal(free_RVs[index], proposal)
+        samples = sampler(200, 100, 100)
+        data = samples[0]
 
-            full_observations = dict(observations)
-            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
-            full_observations.update(dict([(free_RVs[index], proposal)]))
-            new_log_likelihood = full_log_likelihood(full_observations)
-
-            bw = tensor.sum(lpdf(proposal_rev, free_RVs_state[index]))
-            fw = tensor.sum(lpdf(proposal, proposal))
-
-            lr = new_log_likelihood-log_likelihood+bw-fw
-
-            accept = tensor.gt(lr, tensor.log(U))
-
-            updates = {free_RVs_state[index] : tensor.switch(accept, proposal, free_RVs_state[index])}
-
-            print free_RVs[index]            
-            rr.append(theano.function([], [accept], updates=updates))
-        
-        for i in range(100*200+500):
-            print i
-            
-            accept = False
-            while not accept:
-                index = numpy.random.randint(len(free_RVs))
-
-                accept = rr[index]()            
-                if accept:
-                    data.append(free_RVs_state[free_RVs.index(output)].get_value())
-        
-        data = numpy.asarray(data).squeeze()
         print data.shape
-        pylab.bar(range(5), data[500::100, :].sum(axis=0))
+        pylab.bar(range(5), data.sum(axis=0))
         pylab.show()
                     
         
-# t = TestBayesianLogisticRegression()
-# t.setUp()
-# t.test_likelihood()
-
-t = TestHierarchicalBagBalls()
+t = TestBayesianLogisticRegression()
 t.setUp()
-t.test_predictive()
+t.test_likelihood()
+# 
+# t = TestHierarchicalBagBalls()
+# t.setUp()
+# t.test_predictive()
