@@ -176,13 +176,33 @@ def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dt
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
+def lognormal_cdf(x, mu, sigma):
+    # wikipedia claims cdf is
+    # .5 + .5 erf( log(x) - mu / sqrt(2 sigma^2))
+    return .5 + .5 * tensor.erf(
+            (tensor.log(x) - mu)
+            / tensor.sqrt(2 * sigma**2))
 
 @rng_register
 def lognormal_lpdf(node, x, kw):
     r, shape, mu, sigma = node.inputs
-    Z = sigma * x * numpy.sqrt(2 * numpy.pi)
-    E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
-    return -E - tensor.log(Z)
+    if 'float' in node.outputs[1].dtype:
+        # formula copied from wikipedia
+        # http://en.wikipedia.org/wiki/Log-normal_distribution
+        Z = sigma * x * numpy.sqrt(2 * numpy.pi)
+        E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
+        return -E - tensor.log(Z)
+    elif 'int' in node.outputs[1].dtype:
+        # casting rounds down to nearest non-negative integer.
+        # so lpdf is log of integral from x to x+1 of P(x)
+        #
+        # TODO: subtracting these two numbers that are really close together and
+        # then taking the log of that difference sounds numerically terrible.
+        return tensor.log(
+                lognormal_cdf(x+1, mu, sigma)
+                - lognormal_cdf(x, mu, sigma))
+    else:
+        raise NotImplementedError()
 
 
 # -----------
@@ -210,8 +230,9 @@ class Categorical(theano.Op):
 
     def make_node(self, s_rstate, p, draw_shape):
         p = tensor.as_tensor_variable(p)
+        draw_shape = tensor.as_tensor_variable(draw_shape)
         return theano.gof.Apply(self,
-                [s_rstate, p],
+                [s_rstate, p, draw_shape],
                 [s_rstate.type(), self.otype()])
 
     def perform(self, node, inputs, outstor):
@@ -254,7 +275,7 @@ def categorical_lpdf(node, sample, kw):
     This is formally equivalent to numpy.where(multinomial(n=1, p))
     """
     # WARNING: I think the p[-1] is not used, but assumed to be p[:-1].sum()
-    s_rstate, p = node.inputs
+    s_rstate, p, draw_shape = node.inputs
     return p[sample]
 
 
