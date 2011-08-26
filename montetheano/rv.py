@@ -1,6 +1,7 @@
 """
 Functions for operating on random variables.
 """
+import theano
 from theano import tensor
 from for_theano import ancestors, as_variable
 import rstreams
@@ -151,6 +152,7 @@ def full_log_likelihood(assignment):
 
     pdfs = [lpdf(rv, sample) for rv, sample in assignment.items()]
     lik = tensor.add(*[tensor.sum(p) for p in pdfs])
+    
     dfs_variables = ancestors([lik], blockers=assignment.keys())
     frontier = [r for r in dfs_variables
             if r.owner is None or r in assignment.keys()]

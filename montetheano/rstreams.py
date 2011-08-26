@@ -126,12 +126,17 @@ class RandomStreams(ClobberContext):
         else:
             raise TypeError('rv not recognized as output of RandomFunction')
 
-    def local_proposal(rv, sample, **kwargs):
+    def local_proposal(self, rv, sample, **kwargs):
         """
         Return the probability (density) that random variable `rv`, returned by
         a call to one of the sampling routines of this class takes value `sample`
         """
-        raise NotImplementedError()
+        if rv.owner:
+            dist_name = rv_dist_name(rv)
+            local_proposal = local_proposals[dist_name]
+            return local_proposal(self, rv.owner, sample, kwargs)
+        else:
+            raise TypeError('rv not recognized as output of RandomFunction')
 
     #
     # N.B. OTHER METHODS (samplers) ARE INSTALLED HERE BY
@@ -184,6 +189,13 @@ def register_params(dist_name, f):
     params_handlers[dist_name] = f
     return f
 
+def register_local_proposal(dist_name, f):
+    if dist_name in local_proposals:
+        # TODO: allow for multiple handlers?
+        raise KeyError(dist_name, local_proposals[dist_name])
+    local_proposals[dist_name] = f
+    return f
+
 
 def rng_register(f):
     if f.__name__.endswith('_sampler'):
@@ -201,6 +213,10 @@ def rng_register(f):
     elif f.__name__.endswith('_params'):
         dist_name = f.__name__[:-len('_params')]
         return register_params(dist_name, f)
+
+    elif f.__name__.endswith('_proposal'):
+        dist_name = f.__name__[:-len('_proposal')]
+        return register_local_proposal(dist_name, f)
 
     else:
         raise ValueError("function name suffix not recognized", f.__name__)
