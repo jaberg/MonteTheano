@@ -84,7 +84,7 @@ def lpdf(rv, sample, **kwargs):
     else:
         #TODO: infer from the ancestors of v what distribution it
         #      has.
-        raise NotImplementedError()
+        raise NotImplementedError(rv)
 
 def conditional_log_likelihood(assignment, givens):
     """
@@ -145,7 +145,7 @@ def full_log_likelihood(assignment):
     for rv in RVs:
         if rv not in assignment:
             assignment[rv] = rv
-                
+
     # Cast assignment elements to the right kind of thing
     assignment = typed_items(assignment)
 

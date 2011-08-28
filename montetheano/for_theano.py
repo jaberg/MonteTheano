@@ -100,7 +100,7 @@ class Where(theano.Op):
                 [tensor.lvector()])
 
     def perform(self, node, inputs, outstorage):
-        outstorage[0][0] = numpy.where(inputs[0])
+        outstorage[0][0] = numpy.asarray(numpy.where(inputs[0])[0])
 where = Where()
 
 
