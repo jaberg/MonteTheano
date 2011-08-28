@@ -326,12 +326,76 @@ class TestHierarchicalBagBalls(): #unittest.TestCase):
         print data.shape
         pylab.bar(range(5), data.sum(axis=0))
         pylab.show()
-                    
+                                        
+class TestHMM(): #unittest.TestCase):
+    def setUp(self):
+        s_rng = self.s_rng = RandomStreams(23424)
+
+        self.nr_states = 5
+        self.nr_obs = 3
         
-t = TestBayesianLogisticRegression()
-t.setUp()
-t.test_likelihood()
+        self.observation_model = memoized(lambda state: s_rng.dirichlet([1]*self.nr_obs))
+        self.transition_model = memoized(lambda state: s_rng.dirichlet([1]*self.nr_states))
+        
+        self.transition = lambda state: s_rng.multinomial(1, self.tranisition_model(state))
+        self.observation = lambda state: s_rng.multinomial(1, self.observation_model(state))
+        
+        def transition(obs, state):
+            return [self.observation(state), self.transition(state)] ,{}, until(state == numpy.asarray([0,0,0,0,1])) 
+            
+        [self.sampled_words, self.sampled_states], updates = scan([], [obs, state])
+        
+    def test(self):
+        print evaluate(self.sample_words([1,0,0,0,0]))
+
+
+class TestBayesOccamRazor(): #unittest.TestCase):
+    def setUp(self):
+        s_rng = self.s_rng = RandomStreams(23424)
+
+        self.fair_prior = 0.999
+        
+        self.coin_weight = tensor.switch(s_rng.binomial(1, self.fair_prior) > 0.5, 0.5, s_rng.dirichlet([1, 1])[0])
+        
+        self.make_coin = lambda p, size: s_rng.binomial(1, p, draw_shape=(size,))    
+        self.coin = lambda size: self.make_coin(self.coin_weight, size)
+                    
+    def test(self):
+        for size in [1, 3, 6, 10, 20, 30, 50, 70, 100]:
+            data = evaluate(self.make_coin(0.9, size))
+                    
+            sampler = mh2_sample(self.s_rng, [self.coin_weight], {self.coin(size) : data})            
+            
+            print sampler(nr_samples=400, burnin=20000, lag=10)[0].mean()
+
+class TestLDA(): #unittest.TestCase):
+    def setUp(self):
+        s_rng = self.s_rng = RandomStreams(23424)
+
+        self.nr_words = 10
+        self.nr_topics = 2
+        
+        self.doc_mixture = memoized(lambda doc_id: s_rng.dirichlet([1]*self.nr_topics))
+        self.topic_mixture = memoized(lambda top_id: s_rng.dirichlet([1]*self.nr_words))
+        
+        self.topics = memoized(lambda doc_id: s_rng.multinomial(1, self.doc_mixture(doc_id)))
+        self.word_topic = lambda top_id: s_rng.multinomial(1, self.topic_mixture(top_id))
+        self.get_word = memoized(lambda doc_id: self.word_topic(self.topics(doc_id)))
+
+                    
+    def test(self):
+        print evaluate(self.get_word(1))
+
+        sampler = mh2_sample(self.s_rng, [self.coin_weight], {self.coin(size) : data})            
+        
+# t = TestBayesianLogisticRegression()
+# t.setUp()
+# t.test_likelihood()
 # 
 # t = TestHierarchicalBagBalls()
 # t.setUp()
 # t.test_predictive()
+# 
+t = TestLDA()
+t.setUp()
+t.test()

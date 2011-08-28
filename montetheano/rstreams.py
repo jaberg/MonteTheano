@@ -133,8 +133,13 @@ class RandomStreams(ClobberContext):
         """
         if rv.owner:
             dist_name = rv_dist_name(rv)
-            local_proposal = local_proposals[dist_name]
-            return local_proposal(self, rv.owner, sample, kwargs)
+            if dist_name in local_proposals:
+                # If proposal distribution is provided, use this
+                local_proposal = local_proposals[dist_name]
+                return local_proposal(self, rv.owner, sample, kwargs)
+            else:  
+                # Otherwise fall back to drawing samples from the distribution itself              
+                return rv.owner.outputs[1]
         else:
             raise TypeError('rv not recognized as output of RandomFunction')
 

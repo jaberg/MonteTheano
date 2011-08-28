@@ -5,7 +5,7 @@ Algorithms for drawing samples by MCMC
 import numpy
 import theano
 from theano import tensor
-from for_theano import ancestors, infer_shape
+from for_theano import ancestors, infer_shape, evaluate_with_assignments, evaluate
 from rv import is_raw_rv, full_log_likelihood, lpdf
 
 
@@ -214,11 +214,15 @@ def mh2_sample(s_rng, outputs, observations = {}):
 
                 accept = rr[index]()            
                 if accept and i > burnin and (i-burnin) % lag == 0:
-                    print i
+                    # print i
                     for d, o in zip(data, outputs):
                         # TODO: this can be optimized
-                        d.append(free_RVs_state[free_RVs.index(o)].get_value())
-        
+                        if is_raw_rv(o):
+                            d.append(free_RVs_state[free_RVs.index(o)].get_value())
+                        else:
+                            full_observations = dict(observations)
+                            full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
+                            d.append(evaluate(evaluate_with_assignments(o, full_observations)))
         data = [numpy.asarray(d).squeeze() for d in data]
         
         return data

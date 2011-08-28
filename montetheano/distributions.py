@@ -108,6 +108,7 @@ def normal_params(node):
 
 @rng_register
 def normal_proposal(rstream, node, sample, kw):
+    # TODO: how do we determine the variance?
     return rstream.normal(sample, 0.1, draw_shape = infer_shape(node.outputs[1]))
 
 
@@ -311,6 +312,7 @@ logGamma = LogGamma()
 
 @rng_register
 def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.config.floatX):
+    alpha = tensor.as_tensor_variable(alpha)
     tmp = alpha.T[0].T
 
     alpha = tensor.as_tensor_variable(alpha).astype(theano.config.floatX)
@@ -340,10 +342,6 @@ def dirichlet_lpdf(node, sample, kw):
     stable = tensor.eq(0, (tensor.sum(alpha <= 0.) + tensor.sum(sample <= 0.)))    
     ll = -logBeta(alpha) + tensor.sum(tensor.log(sample)*(alpha-1.), axis=0)    
     return tensor.switch(stable, ll, tensor.as_tensor_variable(float('-inf')))
-            
-@rng_register
-def dirichlet_proposal(rstream, node, sample, kw):
-    return node.outputs[1]
     
 # ---------
 # Gamma
@@ -370,11 +368,6 @@ def gamma_lpdf(node, x, kw):
     r, shape, k, theta = node.inputs
 
     return tensor.log(x)*(k-1.) - x/theta - tensor.log(theta)*k - logGamma(k)
-    
-@rng_register
-def gamma_proposal(rstream, node, sample, kw):
-    # return rstream.lognormal(tensor.log(sample), 1)
-    return node.outputs[1]
 
 # ---------
 # Multinomial
@@ -406,10 +399,6 @@ def multinomial_lpdf(node, x, kw):
     
     return logFactorial(n) - tensor.sum(logFactorial(x), axis=1) + tensor.sum(tensor.log(p)*x, axis=1)
 
-@rng_register
-def multinomial_proposal(rstream, node, sample, kw):
-    return node.outputs[1]
-
 # some weirdness because raw_random uses a helper function
 # TODO: is there a clear way to fix this ?
 @rng_register
@@ -419,10 +408,6 @@ def multinomial_helper_sampler(*args, **kwargs):
 @rng_register
 def multinomial_helper_lpdf(*args, **kwargs):
     return multinomial_lpdf(*args, **kwargs)
-
-@rng_register
-def multinomial_helper_proposal(*args, **kwargs):
-    return multinomial_proposal(*args, **kwargs)
 
 # ---------
 # Dirichlet-Multinomial

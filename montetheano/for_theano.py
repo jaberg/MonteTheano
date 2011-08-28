@@ -14,9 +14,10 @@ class memoized(object):
         self.cache = {}
     def __call__(self, *args):
         try:
+            print args
             return self.cache[args]
         except KeyError:
-            value = self.func(*args)
+            value = self.func(*args)                    
             self.cache[args] = value
             return value
 
@@ -236,6 +237,16 @@ def clone_get_equiv(i, o, replacements=None):
             d[output] = output.clone()
     
     return d
+    
+def evaluate_with_assignments(f, assignment):
+    dfs_variables = ancestors([f], blockers=assignment.keys())
+    frontier = [r for r in dfs_variables
+            if r.owner is None or r in assignment.keys()]
+    cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [f],
+            replacements=assignment)
+    out, = cloned_outputs
+    
+    return out
     
 #
 # SHAPE INFERENCE

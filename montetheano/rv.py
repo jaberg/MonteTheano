@@ -3,9 +3,8 @@ Functions for operating on random variables.
 """
 import theano
 from theano import tensor
-from for_theano import ancestors, as_variable
+from for_theano import ancestors, as_variable, clone_keep_replacements
 import rstreams
-from shallow_clone import clone_keep_replacements
 
 
 def is_randomstate(var):
