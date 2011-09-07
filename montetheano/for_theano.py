@@ -14,7 +14,6 @@ class memoized(object):
         self.cache = {}
     def __call__(self, *args):
         try:
-            print args
             return self.cache[args]
         except KeyError:
             value = self.func(*args)                    
@@ -26,7 +25,6 @@ def as_variable(thing, type=None):
         if type is None or thing.type == type:
             return thing
         else:
-            print thing, thing.type, type
             raise TypeError(thing)
     if hasattr(thing, 'type'):
         if type is None or thing.type == type:

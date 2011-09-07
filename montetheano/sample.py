@@ -205,6 +205,7 @@ def mh2_sample(s_rng, outputs, observations = {}):
         updates = {free_RVs_state[index] : tensor.switch(accept, proposal, free_RVs_state[index])}
         rr.append(theano.function([], [accept], updates=updates))
     
+    # TODO: this exacte amount of samples given back is still wrong
     def sampler(nr_samples, burnin = 100, lag = 100):
         data = [[] for o in outputs]
         for i in range(nr_samples*lag+burnin):        
@@ -214,7 +215,6 @@ def mh2_sample(s_rng, outputs, observations = {}):
 
                 accept = rr[index]()            
                 if accept and i > burnin and (i-burnin) % lag == 0:
-                    # print i
                     for d, o in zip(data, outputs):
                         # TODO: this can be optimized
                         if is_raw_rv(o):

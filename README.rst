@@ -67,9 +67,3 @@ This package differs from the ones above in building on top of Theano, which alr
 natural graph data structure for expressing directed graphical models, b) a
 performance-oriented backend with GPU support, and c) automatic symbolic differentiation which
 makes HMC and optimization routines much easier to implement.
-
-
-Dependencies
-------------
-
-Currently requires `sorted_givens branch <https://github.com/jaberg/Theano/tree/sorted_givens>`_.

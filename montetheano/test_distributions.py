@@ -202,78 +202,6 @@ class TestHierarchicalNormal(): #unittest.TestCase):
         pylab.hist(numpy.asarray(data)[:,1])
         pylab.show()
         
-class TestBayesianLogisticRegression(): #unittest.TestCase):
-    def setUp(self):
-        s_rng = self.s_rng = RandomStreams(3424)
-
-        self.w = s_rng.normal(0, 4, draw_shape=(2,))
-        
-        self.x = tensor.matrix('x')
-        self.y = tensor.nnet.sigmoid(tensor.dot(self.x, self.w))
-
-        self.t = s_rng.binomial(p=self.y, draw_shape=(4,))
-        
-        self.X_data = numpy.asarray([[-1.5, -0.4, 1.3, 2.2],[-1.1, -2.2, 1.3, 0]], dtype=theano.config.floatX).T 
-        self.Y_data = numpy.asarray([1., 1., 0., 0.], dtype=theano.config.floatX)
-
-    def test_likelihood(self):            
-        RVs = dict([(self.t, self.Y_data)])                
-        lik = full_log_likelihood(RVs)
-        
-        givens = dict([(self.x, self.X_data)])
-        lik_func = theano.function([self.w], lik, givens=givens, allow_input_downcast=True)
-
-        delta = .1
-        x = numpy.arange(-10.0, 10.0, delta)
-        y = numpy.arange(-10.0, 10.0, delta)
-        X, Y = numpy.meshgrid(x, y)
-
-        response = []
-        for x, y in zip(X.flatten(), Y.flatten()):
-            response.append(lik_func([x, y]))
-
-        pylab.figure(1)
-        pylab.contour(X, Y, numpy.exp(numpy.asarray(response)).reshape(X.shape), 20)            
-        pylab.draw()
-
-        # sample, ll, updates = mh_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
-        sample, ll, updates = hybridmc_sample(self.s_rng, [self.w], observations={self.t: self.Y_data})
-
-        sampler = theano.function([], sample + [ll] , updates=updates, givens={self.x: self.X_data}, allow_input_downcast=True)
-        out = theano.function([self.w, self.x], self.y, allow_input_downcast=True)
-        
-        delta = 0.1
-        x = numpy.arange(-3, 3, delta)
-        y = numpy.arange(-3, 3, delta)
-        X, Y = numpy.meshgrid(x, y)
-
-        b = numpy.zeros(X.shape)
-        for i in range(1000):
-            w, ll = sampler()            
-
-            if i % 50 == 0:
-                pylab.figure(1)            
-                pylab.plot(w[0], w[1], 'x')
-                pylab.draw()
-
-                response = out(w, numpy.vstack((X.flatten(), Y.flatten())).T)
-                response = response.reshape(X.shape)
-                b += response
-
-                pylab.figure(2)
-                pylab.contour(X, Y, response)            
-                pylab.plot(self.X_data[:2,1], self.X_data[:2,0], 'kx')
-                pylab.plot(self.X_data[2:,1], self.X_data[2:,0], 'bo')
-                pylab.draw()
-                pylab.clf()
-
-        pylab.figure(1)
-        pylab.clf()
-        pylab.contour(X, Y, b)            
-        pylab.plot(self.X_data[:2,0], self.X_data[:2,1], 'kx')
-        pylab.plot(self.X_data[2:,0], self.X_data[2:,1], 'bo')
-        pylab.show()
-
 class Fitting1D(unittest.TestCase):
     def setUp(self):
         self.obs = tensor.as_tensor_variable(
@@ -296,37 +224,6 @@ class Fitting1D(unittest.TestCase):
         l,h = f()
         assert numpy.allclose([l,h], [0.0, 1.01])
         
-class TestHierarchicalBagBalls(): #unittest.TestCase):
-    def setUp(self):
-        s_rng = self.s_rng = RandomStreams(23424)
-
-        self.phi = s_rng.dirichlet(numpy.asarray([1, 1, 1, 1, 1]))
-        self.alpha = s_rng.gamma(2., 2.)        
-        self.prototype = self.phi*self.alpha
-
-        self.bag_prototype =  memoized(lambda bag: s_rng.dirichlet(self.prototype))
-        self.draw_marbles = lambda bag, nr: s_rng.multinomial(1, self.bag_prototype(bag), draw_shape=(nr,))
-
-        self.marbles_bag_1 = numpy.asarray([[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
-        self.marbles_bag_2 = numpy.asarray([[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
-        self.marbles_bag_3 = numpy.asarray([[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0],[1,1,1,1,1,1],[0,0,0,0,0,0]], dtype=theano.config.floatX).T 
-        self.marbles_bag_4 = numpy.asarray([[0],[0],[0],[0],[1]], dtype=theano.config.floatX).T 
-
-    def test_predictive(self):        
-        givens = {self.draw_marbles(1,6): self.marbles_bag_1,
-                    self.draw_marbles(2,6): self.marbles_bag_2,
-                    self.draw_marbles(3,6): self.marbles_bag_3,
-                    self.draw_marbles(4,1): self.marbles_bag_4}
-                    
-        sampler = mh2_sample(self.s_rng, [self.draw_marbles(4,1)], givens)            
-
-        samples = sampler(200, 100, 100)
-        data = samples[0]
-
-        print data.shape
-        pylab.bar(range(5), data.sum(axis=0))
-        pylab.show()
-                                        
 class TestHMM(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -347,55 +244,3 @@ class TestHMM(): #unittest.TestCase):
         
     def test(self):
         print evaluate(self.sample_words([1,0,0,0,0]))
-
-
-class TestBayesOccamRazor(): #unittest.TestCase):
-    def setUp(self):
-        s_rng = self.s_rng = RandomStreams(23424)
-
-        self.fair_prior = 0.999
-        
-        self.coin_weight = tensor.switch(s_rng.binomial(1, self.fair_prior) > 0.5, 0.5, s_rng.dirichlet([1, 1])[0])
-        
-        self.make_coin = lambda p, size: s_rng.binomial(1, p, draw_shape=(size,))    
-        self.coin = lambda size: self.make_coin(self.coin_weight, size)
-                    
-    def test(self):
-        for size in [1, 3, 6, 10, 20, 30, 50, 70, 100]:
-            data = evaluate(self.make_coin(0.9, size))
-                    
-            sampler = mh2_sample(self.s_rng, [self.coin_weight], {self.coin(size) : data})            
-            
-            print sampler(nr_samples=400, burnin=20000, lag=10)[0].mean()
-
-class TestLDA(): #unittest.TestCase):
-    def setUp(self):
-        s_rng = self.s_rng = RandomStreams(23424)
-
-        self.nr_words = 10
-        self.nr_topics = 2
-        
-        self.doc_mixture = memoized(lambda doc_id: s_rng.dirichlet([1]*self.nr_topics))
-        self.topic_mixture = memoized(lambda top_id: s_rng.dirichlet([1]*self.nr_words))
-        
-        self.topics = memoized(lambda doc_id: s_rng.multinomial(1, self.doc_mixture(doc_id)))
-        self.word_topic = lambda top_id: s_rng.multinomial(1, self.topic_mixture(top_id))
-        self.get_word = memoized(lambda doc_id: self.word_topic(self.topics(doc_id)))
-
-                    
-    def test(self):
-        print evaluate(self.get_word(1))
-
-        sampler = mh2_sample(self.s_rng, [self.coin_weight], {self.coin(size) : data})            
-        
-# t = TestBayesianLogisticRegression()
-# t.setUp()
-# t.test_likelihood()
-# 
-# t = TestHierarchicalBagBalls()
-# t.setUp()
-# t.test_predictive()
-# 
-t = TestLDA()
-t.setUp()
-t.test()

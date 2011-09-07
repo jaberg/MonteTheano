@@ -51,7 +51,6 @@ def condition(rvs, observations):
     if len(rvs) > 1:
         raise NotImplementedError()
     observations = typed_items(observations)
-    print observations
     # if none of the rvs show up in the ancestors of any observations
     # then this is easy conditioning
     obs_ancestors = ancestors(observations.keys(), blockers=rvs)
