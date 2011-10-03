@@ -203,11 +203,31 @@ def ancestors(variable_list, blockers = None):
 
 
 def clone_keep_replacements(i, o, replacements=None):
+    """Duplicate nodes from i -> o inclusive.
+
+    i - sequence of variables
+    o - sequence of variables
+    replacements - dictionary mapping each old node to its new one.
+        (this is modified in-place as described in `clone_get_equiv`)
+
+    By default new inputs are actually the same as old inputs, but
+    when a replacements dictionary is provided this will not generally be the
+    case.
+    """
     equiv = clone_get_equiv(i, o, replacements)
     return [equiv[input] for input in i], [equiv[output] for output in o]
 
 
 def clone_get_equiv(i, o, replacements=None):
+    """Duplicate nodes from `i` to `o` inclusive.
+
+    Returns replacements dictionary, mapping each old node to its new one.
+
+    i - sequence of variables
+    o - sequence of variables
+    replacements - initial value for return value, modified in place.
+
+    """
     if replacements is None:
 	    d = {}
     else:
