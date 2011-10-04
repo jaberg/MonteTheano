@@ -463,3 +463,88 @@ def DM_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=None):
 def DM_lpdf(node, sample, kw):
     r, alpha = node.inputs
     return logBeta(sample + alpha) - logBeta(alpha)
+
+# ---------
+# Gaussian Mixture Model 1D (GMM1)
+#
+# ---------
+
+class GMM1(theano.Op):
+    """
+    1-dimensional Gaussian Mixture - distributed random variable
+
+    weights - vector (M,) of prior mixture component probabilities
+    mus - vector (M, ) of component centers
+    sigmas - vector (M,) of component variances (already squared)
+    """
+
+    dist_name = 'GMM1'
+    def __init__(self, otype):
+        self.otype = otype
+
+    def make_node(self, s_rstate, weights, mus, sigmas):
+        weights = tensor.as_tensor_variable(weights)
+        mus = tensor.as_tensor_variable(mus)
+        sigmas = tensor.as_tensor_variable(sigmas)
+        if weights.ndim != 1:
+            raise TypeError('weights', weights)
+        if mus.ndim != 1:
+            raise TypeError('mus', mus)
+        if sigmas.ndim != 1:
+            raise TypeError('sigmas', sigmas)
+        return theano.gof.Apply(self,
+                [s_rstate, weights, mus, sigmas],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, output_storage):
+        raise NotImplemented('TODO')
+
+@rng_register
+def GMM1_sampler(rstream, weights, mus, sigmas, draw_shape=None, ndim=None):
+    rstate = rstream.new_shared_rstate()
+
+    # shape prep
+    if draw_shape is None:
+        raise NotImplementedError()
+    elif draw_shape is tensor.as_tensor_variable(draw_shape):
+        shape = draw_shape
+        if ndim is None:
+            ndim = tensor.get_vector_length(shape)
+    else:
+        shape = tensor.hstack(*draw_shape)
+        if ndim is None:
+            ndim = len(draw_shape)
+        assert tensor.get_vector_length(shape) == ndim
+
+    op = GMM1(
+            tensor.TensorType(
+                broadcastable=(False,) * ndim,
+                dtype=theano.config.floatX))
+    rs, out = op(rstate, weights, mus, sigmas)
+    # updated random state rs is in the default_updates of rstate
+    return out
+
+@rng_register
+def GMM1_lpdf(node, sample, kw):
+    r, weights, mus, sigmas = node.inputs
+    assert weights.ndim == 1
+    assert mus.ndim == 1
+    assert sigmas.ndim == 1
+    if sample.ndim != 1:
+        raise NotImplementedError('sample not vector', (sample, sample.type))
+
+    dist = (sample.dimshuffle(0, 'x') - mus)
+    mahal = ((dist ** 2) / (sigmas ** 2))
+    # mahal.shape == (n_samples, n_components)
+
+    # XXX: make sure this becomes logsum
+    rval = tensor.log(tensor.sum(
+            tensor.exp(-.5 * mahal) * weights,
+            axis=1))
+    return rval
+
+@rng_register
+def bounded_gmm_sampler(rstream, low, high, mus, sigmas, draw_shape=None, ndim=None):
+    raise NotImplementedError()
+
+
