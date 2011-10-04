@@ -102,6 +102,91 @@ class Where(theano.Op):
 where = Where()
 
 
+class BoolTake(theano.Op):
+    """
+    Return the equivalent of
+    [x[i] for i, j in enumerate(tf) if j]
+
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, x, tf):
+        x = tensor.as_tensor_variable(x)
+        tf = tensor.as_tensor_variable(tf)
+        if x.ndim < 1: raise TypeError()
+        if x.ndim != 1: raise TypeError()
+        if 'int' not in tf.dtype: raise TypeError()
+        return theano.gof.Apply(self,
+                [x, tf],
+                [x.type()])
+
+    def perform(self, node, inputs, output_storage):
+        x, tf = inputs
+        xx = x[:len(tf)]
+        rval = x[:len(tf)][tf > 0]
+        output_storage[0][0] = rval
+bool_take = BoolTake()
+
+
+class Restrict(theano.Op):
+    """
+    Return the equivalent of
+    [i for i, e in enumerate(elements) if e in idxs]
+
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, elements, idxs):
+        elements = tensor.as_tensor_variable(elements)
+        idxs = tensor.as_tensor_variable(idxs)
+        if elements.ndim != 1: raise TypeError()
+        if idxs.ndim != 1: raise TypeError()
+        if 'int' not in elements.dtype: raise TypeError()
+        if 'int' not in idxs.dtype: raise TypeError()
+        return theano.gof.Apply(self,
+                [elements, idxs],
+                [idxs.type()])
+
+    def perform(self, node, inputs, output_storage):
+        elements, idxs = inputs
+        idxs = set(idxs)
+        rval = numpy.asarray(
+                [i for i, e in enumerate(elements) if e in idxs],
+                dtype='int32')
+        output_storage[0][0] = rval
+restrict = Restrict()
+
+class Argsort(theano.Op):
+    """
+    Return the equivalent of numpy.argsort(x)
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, x):
+        x = tensor.as_tensor_variable(x)
+        if x.ndim != 1: raise TypeError()
+        if 'complex' in str(x.dtype): raise TypeError()
+        return theano.gof.Apply(self, [x], [tensor.lvector()])
+
+    def perform(self, node, inputs, output_storage):
+        output_storage[0][0] = numpy.argsort(inputs[0])
+argsort = Argsort()
+
 def elemwise_cond(*args):
     """Build a nested elemwise if elif ... statement.
 
