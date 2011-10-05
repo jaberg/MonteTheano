@@ -16,6 +16,7 @@ from rstreams import rng_register
 # - Additional distributions of interest:
 #   - Wishart
 #   - Dirichlet process / CRP
+# - REFACTOR: GMM1, BGMM1, lognormal_mixture are largely cut-and-pasted
 
 # -------
 # Uniform
@@ -141,10 +142,10 @@ def binomial_params(node):
     rstate, shape, n, p = node.inputs
     return [n, p]
 
-# ---------
-# LogNormal
-# ---------
 
+# ---------
+# Lognormal
+# ---------
 
 @rng_register
 def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
@@ -177,33 +178,37 @@ def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dt
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
-def lognormal_cdf(x, mu, sigma):
+@rng_register
+def lognormal_lpdf(node, x, kw):
+    r, shape, mu, sigma = node.inputs
+    return lognormal_lpdf_math(x, mu, sigma)
+
+def lognormal_cdf_math(x, mu, sigma):
     # wikipedia claims cdf is
     # .5 + .5 erf( log(x) - mu / sqrt(2 sigma^2))
     return .5 + .5 * tensor.erf(
             (tensor.log(x) - mu)
             / tensor.sqrt(2 * sigma**2))
 
-@rng_register
-def lognormal_lpdf(node, x, kw):
-    r, shape, mu, sigma = node.inputs
-    if 'float' in node.outputs[1].dtype:
+def lognormal_lpdf_math(x, mu, sigma, step=1):
+    if 'float' in x.dtype:
         # formula copied from wikipedia
         # http://en.wikipedia.org/wiki/Log-normal_distribution
         Z = sigma * x * numpy.sqrt(2 * numpy.pi)
         E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
         return -E - tensor.log(Z)
-    elif 'int' in node.outputs[1].dtype:
+    elif 'int' in x.dtype:
         # casting rounds down to nearest non-negative integer.
         # so lpdf is log of integral from x to x+1 of P(x)
         #
         # TODO: subtracting these two numbers that are really close together and
         # then taking the log of that difference sounds numerically terrible.
         return tensor.log(
-                lognormal_cdf(x+1, mu, sigma)
-                - lognormal_cdf(x, mu, sigma))
+                lognormal_cdf_math(x+step, mu, sigma)
+                - lognormal_cdf_math(x, mu, sigma))
     else:
-        raise NotImplementedError()
+        raise TypeError(sample)
+
 
 # -----------
 # Categorical
@@ -439,11 +444,11 @@ def multinomial_helper_sampler(*args, **kwargs):
 def multinomial_helper_lpdf(*args, **kwargs):
     return multinomial_lpdf(*args, **kwargs)
 
-# ---------
+# --------------------------------------------------
 # Dirichlet-Multinomial
 #
 # Only the LPDF is implemented, the sampler is bogus
-# ---------
+# --------------------------------------------------
 
 class DM(theano.Op):
     dist_name = 'DM'
@@ -458,7 +463,7 @@ class DM(theano.Op):
 
     def perform(self, node, inputs, output_storage):      
         raise NotImplemented
-        
+
 @rng_register
 def DM_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=None):
     shape = infer_shape(rstream.dirichlet(alpha, draw_shape=draw_shape))
@@ -466,16 +471,16 @@ def DM_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=None):
     op = DM(tensor.TensorType(broadcastable=(False,)* tensor.get_vector_length(shape), dtype=theano.config.floatX))
     rs, out = op(rstate, alpha)
     return out
-    
+
 @rng_register
 def DM_lpdf(node, sample, kw):
     r, alpha = node.inputs
     return logBeta(sample + alpha) - logBeta(alpha)
 
-# ---------
+
+# --------------------------------
 # Gaussian Mixture Model 1D (GMM1)
-#
-# ---------
+# --------------------------------
 
 class GMM1(theano.Op):
     """
@@ -582,8 +587,246 @@ def GMM1_lpdf(node, sample, kw):
         assert rval.ndim != 1
     return rval
 
+
+# -----------------------------------------
+# Bounded Gaussian Mixture Model 1D (BGMM1)
+# -----------------------------------------
+
+class BGMM1(theano.Op):
+    """
+    Bounded 1-dimensional Gaussian Mixture - distributed random variable
+
+    weights - vector (M,) of prior mixture component probabilities
+    mus - vector (M, ) of component centers
+    sigmas - vector (M,) of component variances (already squared)
+    low - scalar
+    high - scalar
+
+    This density is a Gaussian Mixture model truncated both below (`low`) and
+    above (`high`).
+    """
+
+    dist_name = 'BGMM1'
+    def __init__(self, otype):
+        self.otype = otype
+
+    def __hash__(self):
+        return hash((type(self), self.otype))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.otype == other.otype
+
+    def make_node(self, s_rstate, weights, mus, sigmas, low, high, draw_shape):
+        weights = tensor.as_tensor_variable(weights)
+        mus = tensor.as_tensor_variable(mus)
+        sigmas = tensor.as_tensor_variable(sigmas)
+        low = tensor.as_tensor_variable(low)
+        high = tensor.as_tensor_variable(high)
+        if weights.ndim != 1:
+            raise TypeError('weights', weights)
+        if mus.ndim != 1:
+            raise TypeError('mus', mus)
+        if sigmas.ndim != 1:
+            raise TypeError('sigmas', sigmas)
+        if low.ndim != 0:
+            raise TypeError('low', low)
+        if high.ndim != 0:
+            raise TypeError('low', high)
+        return theano.gof.Apply(self,
+                [s_rstate, weights, mus, sigmas, low, high, draw_shape],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, output_storage):
+        rstate, weights, mus, sigmas, low, high, draw_shape = inputs
+
+        n_samples = numpy.prod(draw_shape)
+        n_components = len(weights)
+        rstate = copy.copy(rstate)
+
+        # rejection sampling, one sample at a time...
+        samples = []
+        while len(samples) < n_samples:
+            active = numpy.argmax(rstate.multinomial(1, weights))
+            draw = rstate.normal(loc=mus[active], scale=sigmas[active])
+            if low < draw < high:
+                samples.append(draw)
+        samples = numpy.asarray(
+                numpy.reshape(samples, draw_shape),
+                dtype=self.otype.dtype)
+        output_storage[0][0] = rstate
+        output_storage[1][0] = samples
+
+    def infer_shape(self, node, ishapes):
+        rstate, weights, mus, sigmas, low, high, draw_shape = node.inputs
+        return [None, draw_shape]
+
 @rng_register
-def bounded_gmm_sampler(rstream, low, high, mus, sigmas, draw_shape=None, ndim=None):
-    raise NotImplementedError()
+def BGMM1_sampler(rstream, weights, mus, sigmas, low, high,
+        draw_shape=None, ndim=None, dtype=None):
+    rstate = rstream.new_shared_rstate()
+
+    # shape prep
+    if draw_shape is None:
+        raise NotImplementedError()
+    elif draw_shape is tensor.as_tensor_variable(draw_shape):
+        shape = draw_shape
+        if ndim is None:
+            ndim = tensor.get_vector_length(shape)
+    else:
+        shape = tensor.hstack(*draw_shape)
+        if ndim is None:
+            ndim = len(draw_shape)
+        assert tensor.get_vector_length(shape) == ndim
+
+    # XXX: be smarter about inferring broadcastable
+    op = BGMM1(
+            tensor.TensorType(
+                broadcastable=(False,) * ndim,
+                dtype=theano.config.floatX if dtype is None else dtype))
+    rs, out = op(rstate, weights, mus, sigmas, low, high, shape)
+    # updated random state rs is in the default_updates of rstate
+    return out
+
+@rng_register
+def BGMM1_lpdf(node, sample, kw):
+    r, weights, mus, sigmas, low, high, draw_shape = node.inputs
+    assert weights.ndim == 1
+    assert mus.ndim == 1
+    assert sigmas.ndim == 1
+    _sample = sample
+    if sample.ndim != 1:
+        sample = sample.flatten()
+
+    erf = theano.tensor.erf
+
+    effective_weights = 0.5 * weights * (
+            erf((high - mus) / sigmas) - erf((low - mus) / sigmas))
+
+    dist = (sample.dimshuffle(0, 'x') - mus)
+    mahal = ((dist ** 2) / (sigmas ** 2))
+    # POSTCONDITION: mahal.shape == (n_samples, n_components)
+
+    Z = tensor.sqrt(2 * numpy.pi * sigmas**2)
+    rval = tensor.log(
+            tensor.sum(
+                tensor.true_div(
+                    tensor.exp(-.5 * mahal) * weights,
+                    Z * effective_weights.sum()),
+                axis=1))
+    if not sample is _sample:
+        rval = rval.reshape(_sample.shape)
+        assert rval.ndim != 1
+    return rval
 
 
+# -------------------------
+# Mixture of Lognormal (1D)
+# -------------------------
+class LognormalMixture(theano.Op):
+    """
+    1-dimensional Gaussian Mixture - distributed random variable
+
+    weights - vector (M,) of prior mixture component probabilities
+    mus - vector (M, ) of component centers
+    sigmas - vector (M,) of component variances (already squared)
+    """
+
+    dist_name = 'lognormal_mixture'
+    def __init__(self, otype):
+        self.otype = otype
+
+    def __hash__(self):
+        return hash((type(self), self.otype))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.otype == other.otype
+
+    def make_node(self, s_rstate, weights, mus, sigmas, draw_shape):
+        weights = tensor.as_tensor_variable(weights)
+        mus = tensor.as_tensor_variable(mus)
+        sigmas = tensor.as_tensor_variable(sigmas)
+        if weights.ndim != 1:
+            raise TypeError('weights', weights)
+        if mus.ndim != 1:
+            raise TypeError('mus', mus)
+        if sigmas.ndim != 1:
+            raise TypeError('sigmas', sigmas)
+        return theano.gof.Apply(self,
+                [s_rstate, weights, mus, sigmas, draw_shape],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, output_storage):
+        rstate, weights, mus, sigmas, draw_shape = inputs
+
+        n_samples = numpy.prod(draw_shape)
+        n_components = len(weights)
+        rstate = copy.copy(rstate)
+
+        active = numpy.argmax(
+                rstate.multinomial(1, weights, (n_samples,)),
+                axis=1)
+        assert len(active) == n_samples
+        samples = numpy.exp(
+                rstate.normal(
+                    loc=mus[active],
+                    scale=sigmas[active]))
+        samples = numpy.asarray(
+                numpy.reshape(samples, draw_shape),
+                dtype=self.otype.dtype)
+        output_storage[0][0] = rstate
+        output_storage[1][0] = samples
+
+    def infer_shape(self, node, ishapes):
+        rstate, weights, mus, sigmas, draw_shape = node.inputs
+        return [None, draw_shape]
+
+@rng_register
+def lognormal_mixture_sampler(rstream, weights, mus, sigmas,
+        draw_shape=None, ndim=None, dtype=None):
+    rstate = rstream.new_shared_rstate()
+    # shape prep
+    if draw_shape is None:
+        raise NotImplementedError()
+    elif draw_shape is tensor.as_tensor_variable(draw_shape):
+        shape = draw_shape
+        if ndim is None:
+            ndim = tensor.get_vector_length(shape)
+    else:
+        shape = tensor.hstack(*draw_shape)
+        if ndim is None:
+            ndim = len(draw_shape)
+        assert tensor.get_vector_length(shape) == ndim
+
+    # XXX: be smarter about inferring broadcastable
+    op = LognormalMixture(
+            tensor.TensorType(
+                broadcastable=(False,) * ndim,
+                dtype=theano.config.floatX if dtype is None else dtype))
+    rs, out = op(rstate, weights, mus, sigmas, shape)
+    # updated random state rs is in the default_updates of rstate
+    return out
+
+@rng_register
+def lognormal_mixture_lpdf(node, sample, kw):
+    r, weights, mus, sigmas, draw_shape = node.inputs
+    assert weights.ndim == 1
+    assert mus.ndim == 1
+    assert sigmas.ndim == 1
+    _sample = sample
+    if sample.ndim != 1:
+        sample = sample.flatten()
+
+    # compute the lpdf of each sample under each component
+    lpdfs = lognormal_lpdf_math(sample.dimshuffle(0, 'x'), mus, sigmas)
+    assert lpdfs.ndim == 2
+
+    # XXX: Make sure this is done in a numerically good way
+    rval = tensor.log(
+            tensor.sum(
+                tensor.exp(lpdfs) * weights,
+                axis=1))
+
+    if not sample is _sample:
+        rval = rval.reshape(_sample.shape)
+        assert rval.ndim != 1
+    return rval
