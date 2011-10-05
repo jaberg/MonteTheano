@@ -21,6 +21,7 @@ def test_dirichlet():
     
     assert f().shape == (5, 10)
 
+
 def test_multinomial():
     R = RandomStreams(234)
     n = R.multinomial(5, numpy.ones(5,)/5, draw_shape=(2,))
@@ -28,6 +29,7 @@ def test_multinomial():
     f = theano.function([], n)
     
     assert f().shape == (2, 5)
+
 
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
@@ -73,6 +75,7 @@ class TestBasicBinomial(unittest.TestCase):
         pylab.hist(numpy.asarray(data))
         pylab.show()
 
+
 # first example: http://projects.csail.mit.edu/church/wiki/Learning_as_Conditional_Inference
 class TestCoin(unittest.TestCase):
     def setUp(self):
@@ -94,6 +97,7 @@ class TestCoin(unittest.TestCase):
         for i in range(100):
             print sampler()
 
+
 class TestCoin2(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -110,7 +114,8 @@ class TestCoin2(): #unittest.TestCase):
 
         for i in range(100):
             print sampler(true_sampler(0.9))
-        
+
+
 class TestGMM(unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -134,18 +139,18 @@ class TestGMM(unittest.TestCase):
         
         print lf(1,3,0)
         print lf(1,3,1)
-        
+
         # EM:
         #     E-step:
         #         C = expectation p(C | data, params)
         #     M-step:
         #         params = argmax p(params | C, data)
-        # 
+        #
         # MCMC (Gibbs):
         #     p(params | data, C)
         #     p(C | data, params)
-        
-        
+
+
 class TestHierarchicalNormal(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -201,7 +206,8 @@ class TestHierarchicalNormal(): #unittest.TestCase):
         pylab.subplot(212)
         pylab.hist(numpy.asarray(data)[:,1])
         pylab.show()
-        
+
+
 class Fitting1D(unittest.TestCase):
     def setUp(self):
         self.obs = tensor.as_tensor_variable(
@@ -223,7 +229,8 @@ class Fitting1D(unittest.TestCase):
         f = theano.function([], [up[p[0]], up[p[1]]])
         l,h = f()
         assert numpy.allclose([l,h], [0.0, 1.01])
-        
+
+
 class TestHMM(): #unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
@@ -244,3 +251,198 @@ class TestHMM(): #unittest.TestCase):
         
     def test(self):
         print evaluate(self.sample_words([1,0,0,0,0]))
+
+
+class TestGMM1(unittest.TestCase):
+    def setUp(self):
+        R = RandomStreams(234)
+        weights = tensor.dvector()
+        mus = tensor.dvector()
+        sigmas = tensor.dvector()
+        draw_shape = tensor.ivector()
+        xsca = R.GMM1(weights, mus, sigmas, draw_shape=draw_shape, ndim=0)
+        xvec = R.GMM1(weights, mus, sigmas, draw_shape=draw_shape, ndim=1)
+        xmat = R.GMM1(weights, mus, sigmas, draw_shape=draw_shape, ndim=2)
+
+        self.__dict__.update(locals())
+        del self.self
+
+    def test1(self):
+        assert self.xsca.ndim == 0
+        assert self.xvec.ndim == 1
+        assert self.xmat.ndim == 2
+
+        assert self.xsca.dtype == 'float64'
+        assert self.xvec.dtype == 'float64'
+        assert self.xmat.dtype == 'float64'
+
+    def test_mu_is_used_correctly(self):
+        f = theano.function(
+                [self.weights, self.mus, self.sigmas, self.draw_shape],
+                self.xsca)
+        assert numpy.allclose(10, f([1], [10.0], [0.0000001], []))
+
+    def test_sigma_is_used_correctly(self):
+        f = theano.function(
+                [self.weights, self.mus, self.sigmas, self.draw_shape],
+                self.xvec)
+        samples = f([1], [0.0], [10.0], [1000])
+        assert 9 < numpy.std(samples) < 11
+
+    def test_mus_make_variance(self):
+        f = theano.function(
+                [self.weights, self.mus, self.sigmas, self.draw_shape],
+                self.xvec)
+
+        samples = f([.5, .5], [0.0, 1.0], [0.000001, 0.000001], [1000])
+        print samples.shape
+        #import matplotlib.pyplot as plt
+        #plt.hist(samples)
+        #plt.show()
+        assert .45 < numpy.mean(samples) < .55, numpy.mean(samples)
+        assert .2 < numpy.var(samples) < .3, numpy.var(samples)
+
+    def test_weights(self):
+        f = theano.function(
+                [self.weights, self.mus, self.sigmas, self.draw_shape],
+                self.xvec)
+
+        samples = f([.9999, .0001], [0.0, 1.0], [0.000001, 0.000001], [1000])
+        assert samples.shape == (1000,)
+        #import matplotlib.pyplot as plt
+        #plt.hist(samples)
+        #plt.show()
+        assert -.001 < numpy.mean(samples) < .001, numpy.mean(samples)
+        assert numpy.var(samples) < .0001, numpy.var(samples)
+
+    def test_mat_output(self):
+        f = theano.function(
+                [self.weights, self.mus, self.sigmas, self.draw_shape],
+                self.xmat)
+
+        samples = f([.9999, .0001], [0.0, 1.0], [0.000001, 0.000001], [40, 20])
+        assert samples.shape == (40, 20)
+        assert -.001 < numpy.mean(samples) < .001, numpy.mean(samples)
+        assert numpy.var(samples) < .0001, numpy.var(samples)
+
+    def test_lpdf_scalar_one_component(self):
+        xval = tensor.dscalar()
+        ll = lpdf(self.xsca, xval)
+        assert ll.ndim == 0, ll.type
+        f = theano.function(
+                [xval, self.weights, self.mus, self.sigmas, self.draw_shape],
+                ll)
+        llval = f(1.0, # x
+                [1.],  # weights
+                [1.0], # mu
+                [2.0], # sigma
+                [] # shape
+                )
+        assert llval.shape == ()
+        assert numpy.allclose(llval,
+                numpy.log(1.0 / numpy.sqrt(2 * numpy.pi * 2.0**2)))
+
+    def test_lpdf_scalar_N_components(self):
+        xval = tensor.dscalar()
+        ll = lpdf(self.xsca, xval)
+        assert ll.ndim == 0, ll.type
+        f = theano.function(
+                [xval, self.weights, self.mus, self.sigmas, self.draw_shape],
+                ll)
+        llval = f(1.0, # x
+                [0.25, 0.25, .5],  # weights
+                [0.0, 1.0, 2.0], # mu
+                [1.0, 2.0, 5.0], # sigma
+                [] # shape
+                )
+
+        a = (.25 / numpy.sqrt(2 * numpy.pi * 1.0 ** 2)
+                * numpy.exp(-.5 * (1.0)**2))
+        a += (.25 / numpy.sqrt(2 * numpy.pi * 2.0 ** 2))
+        a += (.5 /  numpy.sqrt(2 * numpy.pi * 5.0 ** 2)
+                * numpy.exp(-.5 * (1.0 / 5.0) ** 2))
+
+    def test_lpdf_vector_N_components(self):
+        xval = tensor.dvector()
+        ll = lpdf(self.xvec, xval)
+        assert ll.ndim == 1, ll.type
+        f = theano.function(
+                [xval, self.weights, self.mus, self.sigmas],
+                ll)
+        llval = f([1.0, 0.0],     # x
+                [0.25, 0.25, .5], # weights
+                [0.0, 1.0, 2.0],  # mu
+                [1.0, 2.0, 5.0],  # sigma
+                )
+
+        # case x = 1.0
+        a = (.25 / numpy.sqrt(2 * numpy.pi * 1.0 ** 2)
+                * numpy.exp(-.5 * (1.0)**2))
+        a += (.25 / numpy.sqrt(2 * numpy.pi * 2.0 ** 2))
+        a += (.5 /  numpy.sqrt(2 * numpy.pi * 5.0 ** 2)
+                * numpy.exp(-.5 * (1.0 / 5.0) ** 2))
+
+        assert llval.shape == (2,)
+        assert numpy.allclose(llval[0], numpy.log(a))
+
+
+        # case x = 0.0
+        a = (.25 / numpy.sqrt(2 * numpy.pi * 1.0 ** 2))
+        a += (.25 / numpy.sqrt(2 * numpy.pi * 2.0 ** 2)
+                * numpy.exp(-.5 * (1.0 / 2.0) ** 2))
+        a += (.5 /  numpy.sqrt(2 * numpy.pi * 5.0 ** 2)
+                * numpy.exp(-.5 * (2.0 / 5.0) ** 2))
+        assert numpy.allclose(llval[1], numpy.log(a))
+
+    def test_lpdf_matrix_N_components(self):
+        xval = tensor.dmatrix()
+        ll = lpdf(self.xmat, xval)
+        assert ll.ndim == 2, ll.type
+        f = theano.function(
+                [xval, self.weights, self.mus, self.sigmas],
+                ll)
+        llval = f([[1.0, 0.0, 0.0], [0, 0, 1]], # x
+                [0.25, 0.25, .5],  # weights
+                [0.0, 1.0, 2.0], # mu
+                [1.0, 2.0, 5.0], # sigma
+                )
+
+        a = (.25 / numpy.sqrt(2 * numpy.pi * 1.0 ** 2)
+                * numpy.exp(-.5 * (1.0)**2))
+        a += (.25 / numpy.sqrt(2 * numpy.pi * 2.0 ** 2))
+        a += (.5 /  numpy.sqrt(2 * numpy.pi * 5.0 ** 2)
+                * numpy.exp(-.5 * (1.0 / 5.0) ** 2))
+
+        assert llval.shape == (2,3)
+        assert numpy.allclose(llval[0,0], numpy.log(a))
+        assert numpy.allclose(llval[1,2], numpy.log(a))
+
+
+        a = (.25 / numpy.sqrt(2 * numpy.pi * 1.0 ** 2))
+        a += (.25 / numpy.sqrt(2 * numpy.pi * 2.0 ** 2)
+                * numpy.exp(-.5 * (1.0 / 2.0)**2))
+        a += (.5 /  numpy.sqrt(2 * numpy.pi * 5.0 ** 2)
+                * numpy.exp(-.5 * (2.0 / 5.0) ** 2))
+
+        assert numpy.allclose(llval[0,1], numpy.log(a))
+        assert numpy.allclose(llval[0,2], numpy.log(a))
+        assert numpy.allclose(llval[1,0], numpy.log(a))
+        assert numpy.allclose(llval[1,1], numpy.log(a))
+
+    # XXX: make sure lpdf calculation includes logsum
+
+    if 0:
+        def test_illustrate(self):
+            f = theano.function(
+                    [self.weights, self.mus, self.sigmas, self.draw_shape],
+                    self.xvec)
+
+            samples = f(#numpy.arange(16)/numpy.arange(16).sum(),
+                    numpy.ones(16)/16,
+                    numpy.arange(16),
+                    #.02 * (numpy.arange(16)+1),
+                    .2 * numpy.ones(16),
+                    [10000])
+            import matplotlib.pyplot as plt
+            plt.hist(samples, bins=100)
+            plt.show()

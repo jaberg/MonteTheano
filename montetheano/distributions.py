@@ -482,7 +482,7 @@ class GMM1(theano.Op):
     def __init__(self, otype):
         self.otype = otype
 
-    def make_node(self, s_rstate, weights, mus, sigmas):
+    def make_node(self, s_rstate, weights, mus, sigmas, draw_shape):
         weights = tensor.as_tensor_variable(weights)
         mus = tensor.as_tensor_variable(mus)
         sigmas = tensor.as_tensor_variable(sigmas)
@@ -493,11 +493,26 @@ class GMM1(theano.Op):
         if sigmas.ndim != 1:
             raise TypeError('sigmas', sigmas)
         return theano.gof.Apply(self,
-                [s_rstate, weights, mus, sigmas],
+                [s_rstate, weights, mus, sigmas, draw_shape],
                 [s_rstate.type(), self.otype()])
 
     def perform(self, node, inputs, output_storage):
-        raise NotImplemented('TODO')
+        rstate, weights, mus, sigmas, draw_shape = inputs
+
+        n_samples = numpy.prod(draw_shape)
+        n_components = len(weights)
+        rstate = copy.copy(rstate)
+
+        active = numpy.argmax(
+                rstate.multinomial(1, weights, (n_samples,)),
+                axis=1)
+        assert len(active) == n_samples
+        samples = rstate.normal(loc=mus[active], scale=sigmas[active])
+        samples = numpy.asarray(numpy.reshape(samples, draw_shape))
+        output_storage[0][0] = rstate
+        output_storage[1][0] = samples
+
+    # XXX: hash, eq, infer_shape
 
 @rng_register
 def GMM1_sampler(rstream, weights, mus, sigmas, draw_shape=None, ndim=None):
@@ -516,31 +531,36 @@ def GMM1_sampler(rstream, weights, mus, sigmas, draw_shape=None, ndim=None):
             ndim = len(draw_shape)
         assert tensor.get_vector_length(shape) == ndim
 
+    # XXX: be smarter about inferring broadcastable
     op = GMM1(
             tensor.TensorType(
                 broadcastable=(False,) * ndim,
-                dtype=theano.config.floatX))
-    rs, out = op(rstate, weights, mus, sigmas)
+                dtype='float64'))
+    rs, out = op(rstate, weights, mus, sigmas, shape)
     # updated random state rs is in the default_updates of rstate
     return out
 
 @rng_register
 def GMM1_lpdf(node, sample, kw):
-    r, weights, mus, sigmas = node.inputs
+    r, weights, mus, sigmas, draw_shape = node.inputs
     assert weights.ndim == 1
     assert mus.ndim == 1
     assert sigmas.ndim == 1
+    _sample = sample
     if sample.ndim != 1:
-        raise NotImplementedError('sample not vector', (sample, sample.type))
+        sample = sample.flatten()
 
     dist = (sample.dimshuffle(0, 'x') - mus)
     mahal = ((dist ** 2) / (sigmas ** 2))
-    # mahal.shape == (n_samples, n_components)
+    # POSTCONDITION: mahal.shape == (n_samples, n_components)
 
-    # XXX: make sure this becomes logsum
+    Z = tensor.sqrt(2 * numpy.pi * sigmas**2)
     rval = tensor.log(tensor.sum(
-            tensor.exp(-.5 * mahal) * weights,
+            tensor.exp(-.5 * mahal) * weights / Z,
             axis=1))
+    if not sample is _sample:
+        rval = rval.reshape(_sample.shape)
+        assert rval.ndim != 1
     return rval
 
 @rng_register
