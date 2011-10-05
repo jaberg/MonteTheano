@@ -348,9 +348,9 @@ def evaluate_with_assignments(f, assignment):
     cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [f],
             replacements=assignment)
     out, = cloned_outputs
-    
     return out
-    
+
+
 #
 # SHAPE INFERENCE
 #
