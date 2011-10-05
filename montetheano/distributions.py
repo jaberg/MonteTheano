@@ -73,7 +73,6 @@ def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
-
 @rng_register
 def normal_lpdf(node, sample, kw):
     # make sure that the division is done at least with float32 precision
@@ -241,12 +240,21 @@ class Categorical(theano.Op):
         if not self.destructive:
             rng = copy.deepcopy(rng)
         n_draws = numpy.prod(shp)
-        rval = [numpy.where(rng.multinomial(pvals=p, n=1))[0][0]
-                for i in xrange(n_draws)]
-        rval = numpy.asarray(rval, dtype=self.otype.dtype)
-        rval.shape = shp
+        sample = rng.multinomial(n=1, pvals=p, size=tuple(shp))
+        assert sample.shape == tuple(shp) + (len(p),)
+        if shp:
+            rval = numpy.sum(sample * numpy.arange(len(p)), axis=len(shp))
+        else:
+            rval = [numpy.where(rng.multinomial(pvals=p, n=1))[0][0]
+                    for i in xrange(n_draws)]
+            rval = numpy.asarray(rval, dtype=self.otype.dtype)
+        assert rval.shape == shp
         outstor[0][0] = rng
         outstor[1][0] = self.otype.filter(rval, allow_downcast=True)
+
+
+    def infer_shape(self, node, ishapes):
+        return [None, node.inputs[2]]
 
 
 @rng_register
@@ -482,6 +490,12 @@ class GMM1(theano.Op):
     def __init__(self, otype):
         self.otype = otype
 
+    def __hash__(self):
+        return hash((type(self), self.otype))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.otype == other.otype
+
     def make_node(self, s_rstate, weights, mus, sigmas, draw_shape):
         weights = tensor.as_tensor_variable(weights)
         mus = tensor.as_tensor_variable(mus)
@@ -508,14 +522,19 @@ class GMM1(theano.Op):
                 axis=1)
         assert len(active) == n_samples
         samples = rstate.normal(loc=mus[active], scale=sigmas[active])
-        samples = numpy.asarray(numpy.reshape(samples, draw_shape))
+        samples = numpy.asarray(
+                numpy.reshape(samples, draw_shape),
+                dtype=self.otype.dtype)
         output_storage[0][0] = rstate
         output_storage[1][0] = samples
 
-    # XXX: hash, eq, infer_shape
+    def infer_shape(self, node, ishapes):
+        rstate, weights, mus, sigmas, draw_shape = node.inputs
+        return [None, draw_shape]
 
 @rng_register
-def GMM1_sampler(rstream, weights, mus, sigmas, draw_shape=None, ndim=None):
+def GMM1_sampler(rstream, weights, mus, sigmas,
+        draw_shape=None, ndim=None, dtype=None):
     rstate = rstream.new_shared_rstate()
 
     # shape prep
@@ -535,7 +554,7 @@ def GMM1_sampler(rstream, weights, mus, sigmas, draw_shape=None, ndim=None):
     op = GMM1(
             tensor.TensorType(
                 broadcastable=(False,) * ndim,
-                dtype='float64'))
+                dtype=theano.config.floatX if dtype is None else dtype))
     rs, out = op(rstate, weights, mus, sigmas, shape)
     # updated random state rs is in the default_updates of rstate
     return out
