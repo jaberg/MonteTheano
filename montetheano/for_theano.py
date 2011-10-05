@@ -133,10 +133,12 @@ class BoolTake(theano.Op):
 bool_take = BoolTake()
 
 
-class Restrict(theano.Op):
+class Find(theano.Op):
     """
+    Returns positions in `query` where elements of `keepset` occur.
+
     Return the equivalent of
-    [i for i, e in enumerate(elements) if e in idxs]
+    [i for (i, q) in enumerate(query) if q in keepset]
 
     """
 
@@ -146,25 +148,25 @@ class Restrict(theano.Op):
     def __eq__(self, other):
         return type(self) == type(other)
 
-    def make_node(self, elements, idxs):
-        elements = tensor.as_tensor_variable(elements)
-        idxs = tensor.as_tensor_variable(idxs)
-        if elements.ndim != 1: raise TypeError()
-        if idxs.ndim != 1: raise TypeError()
-        if 'int' not in elements.dtype: raise TypeError()
-        if 'int' not in idxs.dtype: raise TypeError()
+    def make_node(self, query, keepset):
+        query = tensor.as_tensor_variable(query)
+        keepset = tensor.as_tensor_variable(keepset)
+        if query.ndim != 1: raise TypeError()
+        if keepset.ndim != 1: raise TypeError()
+        if 'int' not in query.dtype: raise TypeError()
+        if 'int' not in keepset.dtype: raise TypeError()
         return theano.gof.Apply(self,
-                [elements, idxs],
-                [idxs.type()])
+                [query, keepset],
+                [keepset.type()])
 
     def perform(self, node, inputs, output_storage):
-        elements, idxs = inputs
-        idxs = set(idxs)
+        query, keepset = inputs
+        keepset = set(keepset)
         rval = numpy.asarray(
-                [i for i, e in enumerate(elements) if e in idxs],
-                dtype='int32')
+                [i for i, e in enumerate(query) if e in keepset],
+                dtype=inputs[1].dtype)
         output_storage[0][0] = rval
-restrict = Restrict()
+find = Find()
 
 class Argsort(theano.Op):
     """
