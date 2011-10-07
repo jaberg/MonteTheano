@@ -254,9 +254,9 @@ class Categorical(theano.Op):
                     for i in xrange(n_draws)]
             rval = numpy.asarray(rval, dtype=self.otype.dtype)
         assert rval.shape == shp
+        #print "categorical drawing samples", rval.shape, (rval==0).sum(), (rval==1).sum()
         outstor[0][0] = rng
         outstor[1][0] = self.otype.filter(rval, allow_downcast=True)
-
 
     def infer_shape(self, node, ishapes):
         return [None, node.inputs[2]]
@@ -265,7 +265,7 @@ class Categorical(theano.Op):
 @rng_register
 def categorical_sampler(rstream, p, draw_shape, dtype='int32'):
     if not isinstance(p, theano.Variable):
-        p = tensor.shared(numpy.asarray(p, dtype=theano.config.floatX))
+        p = tensor._shared(numpy.asarray(p, dtype=theano.config.floatX))
     if p.ndim != 1:
         raise NotImplementedError()
     if draw_shape.ndim != 1:
@@ -653,6 +653,7 @@ class BGMM1(theano.Op):
         samples = numpy.asarray(
                 numpy.reshape(samples, draw_shape),
                 dtype=self.otype.dtype)
+        #print "BGMM drawing samples", samples.shape, samples.flatten()[:4]
         output_storage[0][0] = rstate
         output_storage[1][0] = samples
 

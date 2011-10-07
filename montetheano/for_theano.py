@@ -75,6 +75,7 @@ class Bincount(theano.Op):
             tmp[:len(rval)] = rval
             rval = tmp
         outstorage[0][0] = rval
+    #XXX: infer_shape
 
 bincount = Bincount()
 
@@ -99,6 +100,8 @@ class Where(theano.Op):
 
     def perform(self, node, inputs, outstorage):
         outstorage[0][0] = numpy.asarray(numpy.where(inputs[0])[0])
+
+    #XXX: infer_shape
 where = Where()
 
 
@@ -166,6 +169,7 @@ class Find(theano.Op):
                 [i for i, e in enumerate(query) if e in keepset],
                 dtype=inputs[1].dtype)
         output_storage[0][0] = rval
+    #XXX: infer_shape
 find = Find()
 
 class Argsort(theano.Op):
@@ -187,6 +191,7 @@ class Argsort(theano.Op):
 
     def perform(self, node, inputs, output_storage):
         output_storage[0][0] = numpy.argsort(inputs[0])
+    #XXX: infer_shape
 argsort = Argsort()
 
 def elemwise_cond(*args):
@@ -316,33 +321,43 @@ def clone_get_equiv(i, o, replacements=None):
 
     """
     if replacements is None:
-	    d = {}
+        d = {}
     else:
         d = replacements
-    
+
+    for old, new in replacements.items():
+        if new in replacements:
+            # I think we want to do something recursive here, but
+            # it feels like it might get tricky? This reminds me of the
+            # 'sorted_givens' branch on github/jaberg/Theano
+            raise NotImplementedError('think before implementing')
+        replacements[new] = new
+
     for input in i:
         if input not in d:
             d[input] = input
-    
+
     for apply in graph.io_toposort(i, o):
         for input in apply.inputs:
             if input not in d:
                 d[input] = input
-        
+
         new_apply = apply.clone_with_new_inputs([d[i] for i in apply.inputs])
         if apply not in d:
             d[apply] = new_apply
-        
+
         for output, new_output in zip(apply.outputs, new_apply.outputs):
             if output not in d:
                 d[output] = new_output
-    
+
     for output in o:
         if output not in d:
             d[output] = output.clone()
-    
+
     return d
-    
+
+
+#XXX: rename -> clone_with_assignment
 def evaluate_with_assignments(f, assignment):
     dfs_variables = ancestors([f], blockers=assignment.keys())
     frontier = [r for r in dfs_variables
