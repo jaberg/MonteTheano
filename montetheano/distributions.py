@@ -4,6 +4,10 @@ Math for various distributions.
 """
 import __builtin__
 import copy
+import logging
+
+logger = logging.getLogger(__file__)
+
 import numpy
 import theano
 import scipy
@@ -771,9 +775,19 @@ class LognormalMixture(theano.Op):
                 rstate.normal(
                     loc=mus[active],
                     scale=sigmas[active]))
+        if not numpy.all(numpy.isfinite(samples)):
+            logger.warning('overflow in LognormalMixture')
+            logger.warning('  mu = %s' % str(mus[active]))
+            logger.warning('  sigma = %s' % str(sigmas[active]))
+            logger.warning('  samples = %s' % str(samples))
         samples = numpy.asarray(
                 numpy.reshape(samples, draw_shape),
                 dtype=self.otype.dtype)
+        if not numpy.all(numpy.isfinite(samples)):
+            logger.warning('overflow in LognormalMixture after astype')
+            logger.warning('  mu = %s' % str(mus[active]))
+            logger.warning('  sigma = %s' % str(sigmas[active]))
+            logger.warning('  samples = %s' % str(samples))
         output_storage[0][0] = rstate
         output_storage[1][0] = samples
 

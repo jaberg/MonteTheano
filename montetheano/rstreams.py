@@ -25,7 +25,7 @@ def rv_dist_name(rv):
         try:
             return rv.owner.op.fn.__name__
         except AttributeError:
-            raise TypeError('rv not recognized as output of RandomFunction')
+            raise TypeError('rv not recognized as output of RandomFunction', rv)
 
 class RandomStreams(ClobberContext):
     clobber_symbols = ['pdf']
