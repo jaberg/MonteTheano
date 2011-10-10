@@ -154,8 +154,8 @@ def binomial_params(node):
 @rng_register
 def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
     """
-    Sample from a normal distribution centered on avg with
-    the specified standard deviation (std).
+    Sample from a log-normal distribution centered (in the log domain) on avg
+    with the specified standard deviation (std).
 
     If the size argument is ambiguous on the number of dimensions, ndim
     may be a plain integer to supplement the missing information.
@@ -166,6 +166,11 @@ def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dt
     If dtype is not specified, it will be inferred from the dtype of
     avg and std, but will be at least as precise as floatX.
     """
+
+    if 'int' in str(dtype):
+        return quantized_lognormal_sampler(rstream, mu, sigma, 1,
+                draw_shape, ndim, dtype=theano.config.floatX)
+
     mu = tensor.as_tensor_variable(mu)
     sigma = tensor.as_tensor_variable(sigma)
 
@@ -173,7 +178,6 @@ def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dt
         dtype = tensor.scal.upcast(
                 theano.config.floatX, mu.dtype, sigma.dtype)
     rstate = rstream.new_shared_rstate()
-
     ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(
             ndim, draw_shape, mu, sigma)
     op = tensor.raw_random.RandomFunction('lognormal',
@@ -195,23 +199,104 @@ def lognormal_cdf_math(x, mu, sigma):
             / tensor.sqrt(2 * sigma**2))
 
 def lognormal_lpdf_math(x, mu, sigma, step=1):
-    if 'float' in x.dtype:
-        # formula copied from wikipedia
-        # http://en.wikipedia.org/wiki/Log-normal_distribution
-        Z = sigma * x * numpy.sqrt(2 * numpy.pi)
-        E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
-        return -E - tensor.log(Z)
-    elif 'int' in x.dtype:
-        # casting rounds down to nearest non-negative integer.
-        # so lpdf is log of integral from x to x+1 of P(x)
-        #
-        # TODO: subtracting these two numbers that are really close together and
-        # then taking the log of that difference sounds numerically terrible.
-        return tensor.log(
-                lognormal_cdf_math(x+step, mu, sigma)
-                - lognormal_cdf_math(x, mu, sigma))
-    else:
-        raise TypeError(sample)
+    # formula copied from wikipedia
+    # http://en.wikipedia.org/wiki/Log-normal_distribution
+    Z = sigma * x * numpy.sqrt(2 * numpy.pi)
+    E = 0.5 * ((tensor.log(x) - mu) / sigma)**2
+    return -E - tensor.log(Z)
+
+
+# -------------------
+# Quantized Lognormal
+# -------------------
+
+class QuantizedLognormal(theano.Op):
+    dist_name = 'quantized_lognormal'
+
+    def __init__(self, otype, destructive=False):
+        self.destructive = destructive
+        self.otype = otype
+        if destructive:
+            self.destroy_map = {0:[0]}
+        else:
+            self.destroy_map = {}
+
+    def __eq__(self, other):
+        return (type(self) == type(other)
+                and self.destructive == other.destructive
+                and self.otype == other.otype)
+
+    def __hash__(self):
+        return hash((type(self), self.destructive, self.otype))
+
+    def make_node(self, s_rstate, draw_shape, mu, sigma, step):
+        draw_shape = tensor.as_tensor_variable(draw_shape)
+        mu = tensor.as_tensor_variable(mu)
+        sigma = tensor.as_tensor_variable(sigma)
+        step = tensor.as_tensor_variable(step)
+        return theano.gof.Apply(self,
+                [s_rstate, draw_shape, mu, sigma, step],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, outstor):
+        rng, shp, mu, sigma, step = inputs
+        if not self.destructive:
+            rng = copy.deepcopy(rng)
+        shp = tuple(shp)
+        sample = rng.lognormal(loc=mu, scale=sigma, size=shp)
+        sample = numpy.ceil(sample / step) * step
+        assert sample.shape == shp
+        outstor[0][0] = rng
+        outstor[1][0] = self.otype.filter(sample, allow_downcast=True)
+
+    def infer_shape(self, node, ishapes):
+        return [None, node.inputs[1]]
+
+@rng_register
+def quantized_lognormal_sampler(rstream, mu=0.0, sigma=1.0, step=1, draw_shape=None, ndim=None,
+        dtype=theano.config.floatX):
+    """
+    Sample from a quantized log-normal distribution centered on avg with
+    the specified standard deviation (std).
+
+    If the size argument is ambiguous on the number of dimensions, ndim
+    may be a plain integer to supplement the missing information.
+
+    If size is None, the output shape will be determined by the shapes
+    of avg and std.
+
+    If dtype is not specified, it will be inferred from the dtype of
+    avg and std, but will be at least as precise as floatX.
+    """
+
+    mu = tensor.as_tensor_variable(mu)
+    sigma = tensor.as_tensor_variable(sigma)
+    step = tensor.as_tensor_variable(step)
+
+    if dtype == None:
+        dtype = tensor.scal.upcast(
+                theano.config.floatX,
+                mu.dtype, sigma.dtype, step.dtype)
+    rstate = rstream.new_shared_rstate()
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(
+            ndim, draw_shape, mu, sigma)
+    op = QuantizedLognormal(
+            otype=tensor.TensorType(dtype=dtype, broadcastable=bcast))
+    new_rstate, out = op(rstate, draw_shape, mu, sigma, step)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
+
+@rng_register
+def quantized_lognormal_lpdf(node, x, kw):
+    r, shape, mu, sigma, step = node.inputs
+
+    # casting rounds up to nearest step multiple.
+    # so lpdf is log of integral from x-step to x+1 of P(x)
+
+    # XXX: subtracting two numbers potentially very close together.
+    return tensor.log(
+            lognormal_cdf_math(x, mu, sigma)
+            - lognormal_cdf_math(x-step, mu, sigma))
 
 
 # -----------
