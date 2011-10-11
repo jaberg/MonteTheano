@@ -191,11 +191,15 @@ def lognormal_lpdf(node, x, kw):
     r, shape, mu, sigma = node.inputs
     return lognormal_lpdf_math(x, mu, sigma)
 
-def lognormal_cdf_math(x, mu, sigma):
+def lognormal_cdf_math(x, mu, sigma, eps=1e-12):
     # wikipedia claims cdf is
     # .5 + .5 erf( log(x) - mu / sqrt(2 sigma^2))
+    #
+    # the maximum is used to move negative values and 0 up to a point
+    # where they do not cause nan or inf, but also don't contribute much
+    # to the cdf.
     return .5 + .5 * tensor.erf(
-            (tensor.log(x) - mu)
+            (tensor.log(tensor.maximum(x, eps)) - mu)
             / tensor.sqrt(2 * sigma**2))
 
 def lognormal_lpdf_math(x, mu, sigma, step=1):
@@ -243,14 +247,14 @@ class QuantizedLognormal(theano.Op):
         if not self.destructive:
             rng = copy.deepcopy(rng)
         shp = tuple(shp)
-        sample = rng.lognormal(loc=mu, scale=sigma, size=shp)
+        sample = rng.lognormal(mean=mu, sigma=sigma, size=shp)
         sample = numpy.ceil(sample / step) * step
         assert sample.shape == shp
         outstor[0][0] = rng
         outstor[1][0] = self.otype.filter(sample, allow_downcast=True)
 
     def infer_shape(self, node, ishapes):
-        return [None, node.inputs[1]]
+        return [None, [node.inputs[1][i] for i in range(self.otype.ndim)]]
 
 @rng_register
 def quantized_lognormal_sampler(rstream, mu=0.0, sigma=1.0, step=1, draw_shape=None, ndim=None,
@@ -296,7 +300,7 @@ def quantized_lognormal_lpdf(node, x, kw):
     # XXX: subtracting two numbers potentially very close together.
     return tensor.log(
             lognormal_cdf_math(x, mu, sigma)
-            - lognormal_cdf_math(x-step, mu, sigma))
+            - lognormal_cdf_math(x - step, mu, sigma))
 
 
 # -----------
@@ -348,7 +352,7 @@ class Categorical(theano.Op):
         outstor[1][0] = self.otype.filter(rval, allow_downcast=True)
 
     def infer_shape(self, node, ishapes):
-        return [None, node.inputs[2]]
+        return [None, [node.inputs[2][i] for i in range(self.otype.ndim)]]
 
 
 @rng_register
@@ -442,13 +446,13 @@ def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.c
     alpha = tensor.as_tensor_variable(alpha).astype(theano.config.floatX)
     if dtype == None:
         dtype = tensor.scal.upcast(theano.config.floatX, alpha.dtype)
-        
+
     ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, tmp)
     bcast = bcast+(alpha.type.broadcastable[-1],)
-    
+
     op = tensor.raw_random.RandomFunction('dirichlet',
             tensor.TensorType(dtype=dtype, broadcastable=bcast), ndim_added=1)
-        
+
     rstate = rstream.new_shared_rstate()
     new_rstate, out = op(rstate, draw_shape, alpha)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -456,7 +460,7 @@ def dirichlet_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=theano.c
 
 def logBeta(alpha):
     return tensor.sum(logGamma(alpha)) - logGamma(tensor.sum(alpha))
-    
+
 @rng_register
 def dirichlet_lpdf(node, sample, kw):
     r, shape, alpha = node.inputs
@@ -466,7 +470,7 @@ def dirichlet_lpdf(node, sample, kw):
     stable = tensor.eq(0, (tensor.sum(alpha <= 0.) + tensor.sum(sample <= 0.)))    
     ll = -logBeta(alpha) + tensor.sum(tensor.log(sample)*(alpha-1.), axis=0)    
     return tensor.switch(stable, ll, tensor.as_tensor_variable(float('-inf')))
-    
+
 # ---------
 # Gamma
 # ---------
@@ -476,12 +480,12 @@ def gamma_sampler(rstream, k, theta, draw_shape=None, ndim=None, dtype=theano.co
     k = tensor.as_tensor_variable(k)
     theta = tensor.as_tensor_variable(theta)
     if dtype == None:
-        dtype = tensor.scal.upcast(theano.config.floatX, k.dtype, theta.dtype)    
-        
+        dtype = tensor.scal.upcast(theano.config.floatX, k.dtype, theta.dtype)
+
     ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, k, theta)
     op = tensor.raw_random.RandomFunction('gamma',
             tensor.TensorType(dtype=dtype, broadcastable=bcast))
-            
+
     rstate = rstream.new_shared_rstate()
     new_rstate, out = op(rstate, draw_shape, k, theta)
     rstream.add_default_update(out, rstate, new_rstate)
@@ -511,7 +515,7 @@ def multinomial_sampler(rstream, n=1, p=[0.5, 0.5], draw_shape=None, ndim=None, 
 
 def logFactorial(x):
     return logGamma(x+1.)
-    
+
 @rng_register
 def multinomial_lpdf(node, x, kw):
     r, shape, n, p = node.inputs
@@ -528,7 +532,7 @@ def multinomial_lpdf(node, x, kw):
 @rng_register
 def multinomial_helper_sampler(*args, **kwargs):
     return multinomial_sampler(*args, **kwargs)
-    
+
 @rng_register
 def multinomial_helper_lpdf(*args, **kwargs):
     return multinomial_lpdf(*args, **kwargs)
@@ -543,14 +547,14 @@ class DM(theano.Op):
     dist_name = 'DM'
     def __init__(self, otype):
         self.otype = otype
-    
+
     def make_node(self, s_rstate, alpha):
         alpha = tensor.as_tensor_variable(alpha)
         return theano.gof.Apply(self,
                 [s_rstate, alpha],
                 [s_rstate.type(), self.otype()])
 
-    def perform(self, node, inputs, output_storage):      
+    def perform(self, node, inputs, output_storage):
         raise NotImplemented
 
 @rng_register
@@ -559,6 +563,7 @@ def DM_sampler(rstream, alpha, draw_shape=None, ndim=None, dtype=None):
     rstate = rstream.new_shared_rstate()
     op = DM(tensor.TensorType(broadcastable=(False,)* tensor.get_vector_length(shape), dtype=theano.config.floatX))
     rs, out = op(rstate, alpha)
+    rstream.add_default_update(out, rstate, rs)
     return out
 
 @rng_register
@@ -650,7 +655,7 @@ def GMM1_sampler(rstream, weights, mus, sigmas,
                 broadcastable=(False,) * ndim,
                 dtype=theano.config.floatX if dtype is None else dtype))
     rs, out = op(rstate, weights, mus, sigmas, shape)
-    # updated random state rs is in the default_updates of rstate
+    rstream.add_default_update(out, rstate, rs)
     return out
 
 @rng_register
@@ -774,7 +779,7 @@ def BGMM1_sampler(rstream, weights, mus, sigmas, low, high,
                 broadcastable=(False,) * ndim,
                 dtype=theano.config.floatX if dtype is None else dtype))
     rs, out = op(rstate, weights, mus, sigmas, low, high, shape)
-    # updated random state rs is in the default_updates of rstate
+    rstream.add_default_update(out, rstate, rs)
     return out
 
 @rng_register
@@ -812,6 +817,7 @@ def BGMM1_lpdf(node, sample, kw):
 # -------------------------
 # Mixture of Lognormal (1D)
 # -------------------------
+
 class LognormalMixture(theano.Op):
     """
     1-dimensional Gaussian Mixture - distributed random variable
@@ -903,7 +909,7 @@ def lognormal_mixture_sampler(rstream, weights, mus, sigmas,
                 broadcastable=(False,) * ndim,
                 dtype=theano.config.floatX if dtype is None else dtype))
     rs, out = op(rstate, weights, mus, sigmas, shape)
-    # updated random state rs is in the default_updates of rstate
+    rstream.add_default_update(out, rstate, rs)
     return out
 
 @rng_register
@@ -926,6 +932,148 @@ def lognormal_mixture_lpdf(node, sample, kw):
                 tensor.exp(lpdfs) * weights,
                 axis=1))
 
+    if not sample is _sample:
+        rval = rval.reshape(_sample.shape)
+        assert rval.ndim != 1
+    return rval
+
+
+# -------------------------
+# Mixture of Lognormal (1D)
+# -------------------------
+
+class QuantizedLognormalMixture(theano.Op):
+    """
+    1-dimensional Gaussian Mixture - distributed random variable
+
+    weights - vector (M,) of prior mixture component probabilities
+    mus - vector (M, ) of component centers
+    sigmas - vector (M,) of component variances (already squared)
+    """
+
+    dist_name = 'quantized_lognormal_mixture'
+    def __init__(self, otype):
+        self.otype = otype
+
+    def __hash__(self):
+        return hash((type(self), self.otype))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.otype == other.otype
+
+    def make_node(self, s_rstate, draw_shape, weights, mus, sigmas, step):
+        weights = tensor.as_tensor_variable(weights)
+        mus = tensor.as_tensor_variable(mus)
+        sigmas = tensor.as_tensor_variable(sigmas)
+        step = tensor.as_tensor_variable(step)
+        if weights.ndim != 1:
+            raise TypeError('weights', weights)
+        if mus.ndim != 1:
+            raise TypeError('mus', mus)
+        if sigmas.ndim != 1:
+            raise TypeError('sigmas', sigmas)
+        if step.ndim != 0:
+            raise TypeError('step', step)
+        return theano.gof.Apply(self,
+                [s_rstate, draw_shape, weights, mus, sigmas, step],
+                [s_rstate.type(), self.otype()])
+
+    def perform(self, node, inputs, output_storage):
+        rstate, draw_shape, weights, mus, sigmas, step = inputs
+
+        if len(weights) != len(mus):
+            raise ValueError('length mismatch between weights and mus',
+                    (weights.shape, mus.shape))
+        if len(weights) != len(sigmas):
+            raise ValueError('length mismatch between weights and sigmas',
+                    (weights.shape, sigmas.shape))
+
+        n_samples = numpy.prod(draw_shape)
+        n_components = len(weights)
+        rstate = copy.copy(rstate)
+
+        active = numpy.argmax(
+                rstate.multinomial(1, weights, (n_samples,)),
+                axis=1)
+        assert len(active) == n_samples
+        samples = rstate.lognormal(
+                    mean=mus[active],
+                    sigma=sigmas[active])
+        assert len(samples) == n_samples
+        samples = numpy.asarray(
+                numpy.reshape(samples, tuple(draw_shape)),
+                dtype=self.otype.dtype)
+        samples = numpy.ceil(samples / step) * step
+        if not numpy.all(numpy.isfinite(samples)):
+            logger.warning('overflow in LognormalMixture after astype')
+            logger.warning('  mu = %s' % str(mus[active]))
+            logger.warning('  sigma = %s' % str(sigmas[active]))
+            logger.warning('  samples = %s' % str(samples))
+        output_storage[0][0] = rstate
+        output_storage[1][0] = self.otype.filter(samples, allow_downcast=True)
+
+    def infer_shape(self, node, ishapes):
+        rstate, draw_shape, weights, mus, sigmas, step = node.inputs
+        return [None, [draw_shape[i] for i in range(self.otype.ndim)]]
+
+@rng_register
+def quantized_lognormal_mixture_sampler(rstream, weights, mus, sigmas, step,
+        draw_shape=None, ndim=None, dtype=None):
+    rstate = rstream.new_shared_rstate()
+    # shape prep
+    if draw_shape is None:
+        raise NotImplementedError()
+    elif draw_shape is tensor.as_tensor_variable(draw_shape):
+        shape = draw_shape
+        if ndim is None:
+            ndim = tensor.get_vector_length(shape)
+    else:
+        shape = tensor.hstack(*draw_shape)
+        if ndim is None:
+            ndim = len(draw_shape)
+        assert tensor.get_vector_length(shape) == ndim
+
+    # XXX: be smarter about inferring broadcastable
+    op = QuantizedLognormalMixture(
+            tensor.TensorType(
+                broadcastable=(False,) * ndim,
+                dtype=theano.config.floatX if dtype is None else dtype))
+    rs, out = op(rstate, shape, weights, mus, sigmas, step)
+    rstream.add_default_update(out, rstate, rs)
+    return out
+
+@rng_register
+def quantized_lognormal_mixture_lpdf(node, sample, kw):
+    r, draw_shape, weights, mus, sigmas, step = node.inputs
+    assert weights.ndim == 1
+    assert mus.ndim == 1
+    assert sigmas.ndim == 1
+    assert step.ndim == 0
+    _sample = sample
+    if sample.ndim != 1:
+        sample = sample.flatten()
+
+    # compute the lpdf of each sample under each component
+    lpdfs = tensor.log(
+            lognormal_cdf_math(
+                sample.dimshuffle(0, 'x'),
+                mus,
+                sigmas)
+            - lognormal_cdf_math(
+                sample.dimshuffle(0, 'x') - step,
+                mus,
+                sigmas)
+            + 1.0e-7)
+    print 'LPDFs:'
+    print '======'
+    theano.printing.debugprint(lpdfs, depth=8)
+    print ''
+    assert lpdfs.ndim == 2
+    # XXX: Make sure this is done in a numerically good way
+    rval = tensor.log(
+            tensor.sum(
+                tensor.exp(lpdfs) * weights,
+                axis=1))
     if not sample is _sample:
         rval = rval.reshape(_sample.shape)
         assert rval.ndim != 1
