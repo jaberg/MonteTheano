@@ -1064,10 +1064,6 @@ def quantized_lognormal_mixture_lpdf(node, sample, kw):
                 mus,
                 sigmas)
             + 1.0e-7)
-    print 'LPDFs:'
-    print '======'
-    theano.printing.debugprint(lpdfs, depth=8)
-    print ''
     assert lpdfs.ndim == 2
     # XXX: Make sure this is done in a numerically good way
     rval = tensor.log(
