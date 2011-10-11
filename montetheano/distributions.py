@@ -250,8 +250,11 @@ class QuantizedLognormal(theano.Op):
         sample = rng.lognormal(mean=mu, sigma=sigma, size=shp)
         sample = numpy.ceil(sample / step) * step
         assert sample.shape == shp
+        if sample.size: assert sample.min() > 0
+        sample = self.otype.filter(sample, allow_downcast=True)
+        if sample.size: assert sample.min() > 0
         outstor[0][0] = rng
-        outstor[1][0] = self.otype.filter(sample, allow_downcast=True)
+        outstor[1][0] = sample
 
     def infer_shape(self, node, ishapes):
         return [None, [node.inputs[1][i] for i in range(self.otype.ndim)]]
@@ -1000,17 +1003,18 @@ class QuantizedLognormalMixture(theano.Op):
                     mean=mus[active],
                     sigma=sigmas[active])
         assert len(samples) == n_samples
-        samples = numpy.asarray(
-                numpy.reshape(samples, tuple(draw_shape)),
-                dtype=self.otype.dtype)
         samples = numpy.ceil(samples / step) * step
         if not numpy.all(numpy.isfinite(samples)):
             logger.warning('overflow in LognormalMixture after astype')
             logger.warning('  mu = %s' % str(mus[active]))
             logger.warning('  sigma = %s' % str(sigmas[active]))
             logger.warning('  samples = %s' % str(samples))
+        if samples.size: assert samples.min() > 0
+        samples.shape = tuple(draw_shape)
+        samples = self.otype.filter(samples, allow_downcast=True)
+        if samples.size: assert samples.min() > 0
         output_storage[0][0] = rstate
-        output_storage[1][0] = self.otype.filter(samples, allow_downcast=True)
+        output_storage[1][0] = samples
 
     def infer_shape(self, node, ishapes):
         rstate, draw_shape, weights, mus, sigmas, step = node.inputs
