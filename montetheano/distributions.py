@@ -343,13 +343,13 @@ class Categorical(theano.Op):
         n_draws = numpy.prod(shp)
         sample = rng.multinomial(n=1, pvals=p, size=tuple(shp))
         assert sample.shape == tuple(shp) + (len(p),)
-        if shp:
+        if tuple(shp):
             rval = numpy.sum(sample * numpy.arange(len(p)), axis=len(shp))
         else:
             rval = [numpy.where(rng.multinomial(pvals=p, n=1))[0][0]
                     for i in xrange(n_draws)]
             rval = numpy.asarray(rval, dtype=self.otype.dtype)
-        assert rval.shape == shp
+        assert (rval.shape == shp).all()
         #print "categorical drawing samples", rval.shape, (rval==0).sum(), (rval==1).sum()
         outstor[0][0] = rng
         outstor[1][0] = self.otype.filter(rval, allow_downcast=True)
