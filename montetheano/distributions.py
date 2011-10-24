@@ -29,7 +29,8 @@ from rstreams import rng_register, rv_dist_name
 
 
 @rng_register
-def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtype=theano.config.floatX):
+def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None,
+        dtype=theano.config.floatX):
     low = tensor.as_tensor_variable(low)
     high = tensor.as_tensor_variable(high)
     rstate = rstream.new_shared_rstate()
@@ -38,7 +39,8 @@ def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtyp
     # if isinstance(draw_shape, (list, tuple)):
     #     draw_shape = tensor.stack(*draw_shape)
 
-    new_rstate, out = tensor.raw_random.uniform(rstate, draw_shape, low, high, ndim, dtype)
+    new_rstate, out = tensor.raw_random.uniform(
+            rstate, draw_shape, low, high, ndim, dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -48,9 +50,10 @@ def uniform_lpdf(node, sample, kw):
     rstate, shape, low, high = node.inputs
     rval = elemwise_cond(
         numpy.array(float('-inf')), sample < low,
-        -tensor.log(high-low), sample <= high,
+        -tensor.log(high - low), sample <= high,
         numpy.array(float('-inf')))
     return rval
+
 
 @rng_register
 def uniform_ml(node, sample, weights):
@@ -59,46 +62,54 @@ def uniform_ml(node, sample, weights):
         low: sample.min(),
         high: sample.max()})
 
+
 @rng_register
 def uniform_params(node):
     rstate, shape, low, high = node.inputs
     return [low, high]
-    
+
+
 def uniform_get_low(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'uniform':
+    if rv_dist_name(v) == 'uniform':
         return v.owner.inputs[2]
-    raise TypeError
-    
+    raise ValueError('v is not a uniform draw', v)
+
+
 def uniform_get_high(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'uniform':
+    if rv_dist_name(v) == 'uniform':
         return v.owner.inputs[3]
-    raise TypeError    
-    
+    raise ValueError('v is not a uniform draw', v)
+
+
 # ------
 # Normal
 # ------
 
 def normal_get_mu(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'normal':
+    if rv_dist_name(v) == 'normal':
         return v.owner.inputs[2]
-    raise TypeError  
-    
+    raise ValueError('v is not a normal draw', v)
+
+
 def normal_get_sigma(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'normal':
+    if rv_dist_name(v) == 'normal':
         return v.owner.inputs[3]
-    raise TypeError  
+    raise ValueError('v is not a normal draw', v)
+
 
 @rng_register
-def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=None):
+def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None,
+        dtype=None):
     mu = tensor.as_tensor_variable(mu)
     sigma = tensor.as_tensor_variable(sigma)
     rstate = rstream.new_shared_rstate()
 
-    new_rstate, out = tensor.raw_random.normal(rstate, draw_shape, mu, sigma, dtype=dtype)
+    new_rstate, out = tensor.raw_random.normal(
+            rstate, draw_shape, mu, sigma, dtype=dtype)
     rstream.add_default_update(out, rstate, new_rstate)
     return out
 
@@ -175,18 +186,18 @@ def binomial_params(node):
 # Lognormal
 # ---------
 
-    
+
 def lognormal_get_mu(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'lognormal':
+    if rv_dist_name(v) == 'lognormal':
         return v.owner.inputs[2]
-    raise TypeError 
-    
+    raise ValueError('v is not a lognormal draw', v)
+
 def lognormal_get_sigma(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'lognormal':
+    if rv_dist_name(v) == 'lognormal':
         return v.owner.inputs[3]
-    raise TypeError     
+    raise ValueError('v is not a lognormal draw', v)
 
 @rng_register
 def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
@@ -251,23 +262,23 @@ def lognormal_lpdf_math(x, mu, sigma, step=1):
 # Quantized Lognormal
 # -------------------
 
-def qlognormal_get_mu(v):
+def quantized_lognormal_get_mu(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+    if rv_dist_name(v) == 'quantized_lognormal':
         return v.owner.inputs[2]
-    raise TypeError 
-    
-def qlognormal_get_sigma(v):
+    raise ValueError('v is not a quantized_lognormal draw', v)
+
+def quantized_lognormal_get_sigma(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+    if rv_dist_name(v) == 'quantized_lognormal':
         return v.owner.inputs[3]
-    raise TypeError    
-    
-def qlognormal_get_round(v):
+    raise ValueError('v is not a quantized_lognormal draw', v)
+
+def quantized_lognormal_get_round(v):
     # look in uniform_sampler to see the positions of these things
-    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+    if rv_dist_name(v) == 'quantized_lognormal':
         return v.owner.inputs[4]
-    raise TypeError        
+    raise ValueError('v is not a quantized_lognormal draw', v)
 
 class QuantizedLognormal(theano.Op):
     dist_name = 'quantized_lognormal'
