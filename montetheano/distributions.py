@@ -14,7 +14,8 @@ import scipy
 import scipy.special
 from theano import tensor
 from for_theano import elemwise_cond, ancestors, infer_shape, evaluate
-from rstreams import rng_register
+from rstreams import rng_register, rv_dist_name
+
 
 # TODOs:
 # - Additional distributions of interest:
@@ -62,11 +63,34 @@ def uniform_ml(node, sample, weights):
 def uniform_params(node):
     rstate, shape, low, high = node.inputs
     return [low, high]
-
+    
+def uniform_get_low(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'uniform':
+        return v.owner.inputs[2]
+    raise TypeError
+    
+def uniform_get_high(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'uniform':
+        return v.owner.inputs[3]
+    raise TypeError    
+    
 # ------
 # Normal
 # ------
 
+def normal_get_mu(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'normal':
+        return v.owner.inputs[2]
+    raise TypeError  
+    
+def normal_get_sigma(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'normal':
+        return v.owner.inputs[3]
+    raise TypeError  
 
 @rng_register
 def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=None):
@@ -151,6 +175,19 @@ def binomial_params(node):
 # Lognormal
 # ---------
 
+    
+def lognormal_get_mu(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'lognormal':
+        return v.owner.inputs[2]
+    raise TypeError 
+    
+def lognormal_get_sigma(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'lognormal':
+        return v.owner.inputs[3]
+    raise TypeError     
+
 @rng_register
 def lognormal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=theano.config.floatX):
     """
@@ -213,6 +250,24 @@ def lognormal_lpdf_math(x, mu, sigma, step=1):
 # -------------------
 # Quantized Lognormal
 # -------------------
+
+def qlognormal_get_mu(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+        return v.owner.inputs[2]
+    raise TypeError 
+    
+def qlognormal_get_sigma(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+        return v.owner.inputs[3]
+    raise TypeError    
+    
+def qlognormal_get_round(v):
+    # look in uniform_sampler to see the positions of these things
+    if v.owner and rv_dist_name(v) == 'quantized_lognormal':
+        return v.owner.inputs[4]
+    raise TypeError        
 
 class QuantizedLognormal(theano.Op):
     dist_name = 'quantized_lognormal'
