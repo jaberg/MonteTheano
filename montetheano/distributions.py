@@ -1062,6 +1062,7 @@ class QuantizedLognormalMixture(theano.Op):
 
         n_samples = numpy.prod(draw_shape)
         n_components = len(weights)
+        # XXX: add destructive version
         rstate = copy.copy(rstate)
 
         if n_samples == 0:
@@ -1074,9 +1075,9 @@ class QuantizedLognormalMixture(theano.Op):
             samples = numpy.asarray(numpy.ceil(samples / step) * step)
             assert samples.ndim == 0
             if len(draw_shape) == 0:
-                samples.shape == ()
+                samples.shape = ()
             else:
-                samples.shape == (1,)
+                samples.shape = (1,)
         else:
             active = numpy.argmax(
                     rstate.multinomial(1, weights, (n_samples,)),
@@ -1088,16 +1089,19 @@ class QuantizedLognormalMixture(theano.Op):
             assert len(samples) == n_samples
             samples = numpy.ceil(samples / step) * step
             samples.shape = tuple(draw_shape)
+
         if not numpy.all(numpy.isfinite(samples)):
             logger.warning('overflow in LognormalMixture after astype')
             logger.warning('  mu = %s' % str(mus[active]))
             logger.warning('  sigma = %s' % str(sigmas[active]))
             logger.warning('  samples = %s' % str(samples))
+
         if samples.size:
             assert samples.min() > 0
         samples = self.otype.filter(samples, allow_downcast=True)
         if samples.size:
             assert samples.min() > 0
+
         output_storage[0][0] = rstate
         output_storage[1][0] = samples
 
@@ -1118,7 +1122,8 @@ def quantized_lognormal_mixture_sampler(rstream, weights, mus, sigmas, step,
             ndim = tensor.get_vector_length(shape)
     elif tuple(draw_shape) == ():
         ndim = 0
-        shape = tensor.as_tensor_variable(1)
+        shape = tensor.as_tensor_variable(
+                numpy.asarray([], dtype='int'))
     else:
         shape = tensor.stack(*draw_shape)
         if ndim is None:
