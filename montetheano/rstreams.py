@@ -35,7 +35,13 @@ class RandomStreams(ClobberContext):
         self.default_instance_seed = seed
         self.seed_generator = numpy.random.RandomState(seed)
         self.default_updates = {}
-        self.draw_shape = draw_shape
+        if draw_shape == ():
+            self.draw_shape = tensor.as_tensor_variable(
+                    numpy.empty((0,), dtype='int64'))
+        else:
+            self.draw_shape = tensor.as_tensor_variable(draw_shape)
+        if self.draw_shape.ndim != 1:
+            raise ValueError(draw_shape)
 
     def shared(self, val, **kwargs):
         rval = theano.shared(val, **kwargs)

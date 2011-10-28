@@ -1056,29 +1056,48 @@ class QuantizedLognormalMixture(theano.Op):
         if len(weights) != len(sigmas):
             raise ValueError('length mismatch between weights and sigmas',
                     (weights.shape, sigmas.shape))
+        if len(weights) == 0:
+            raise ValueError('length of weights vector must be positive',
+                    weights.shape)
 
         n_samples = numpy.prod(draw_shape)
         n_components = len(weights)
         rstate = copy.copy(rstate)
 
-        active = numpy.argmax(
-                rstate.multinomial(1, weights, (n_samples,)),
-                axis=1)
-        assert len(active) == n_samples
-        samples = rstate.lognormal(
-                    mean=mus[active],
-                    sigma=sigmas[active])
-        assert len(samples) == n_samples
-        samples = numpy.ceil(samples / step) * step
+        if n_samples == 0:
+            samples = numpy.empty((0,), dtype=node.outputs[1].dtype)
+        elif n_samples == 1:
+            active = numpy.argmax(rstate.multinomial(1, weights))
+            samples = rstate.lognormal(
+                        mean=mus[active],
+                        sigma=sigmas[active])
+            samples = numpy.asarray(numpy.ceil(samples / step) * step)
+            assert samples.ndim == 0
+            if len(draw_shape) == 0:
+                samples.shape == ()
+            else:
+                samples.shape == (1,)
+        else:
+            active = numpy.argmax(
+                    rstate.multinomial(1, weights, (n_samples,)),
+                    axis=1)
+            assert len(active) == n_samples
+            samples = rstate.lognormal(
+                        mean=mus[active],
+                        sigma=sigmas[active])
+            assert len(samples) == n_samples
+            samples = numpy.ceil(samples / step) * step
+            samples.shape = tuple(draw_shape)
         if not numpy.all(numpy.isfinite(samples)):
             logger.warning('overflow in LognormalMixture after astype')
             logger.warning('  mu = %s' % str(mus[active]))
             logger.warning('  sigma = %s' % str(sigmas[active]))
             logger.warning('  samples = %s' % str(samples))
-        if samples.size: assert samples.min() > 0
-        samples.shape = tuple(draw_shape)
+        if samples.size:
+            assert samples.min() > 0
         samples = self.otype.filter(samples, allow_downcast=True)
-        if samples.size: assert samples.min() > 0
+        if samples.size:
+            assert samples.min() > 0
         output_storage[0][0] = rstate
         output_storage[1][0] = samples
 
@@ -1097,8 +1116,11 @@ def quantized_lognormal_mixture_sampler(rstream, weights, mus, sigmas, step,
         shape = draw_shape
         if ndim is None:
             ndim = tensor.get_vector_length(shape)
+    elif tuple(draw_shape) == ():
+        ndim = 0
+        shape = tensor.as_tensor_variable(1)
     else:
-        shape = tensor.hstack(*draw_shape)
+        shape = tensor.stack(*draw_shape)
         if ndim is None:
             ndim = len(draw_shape)
         assert tensor.get_vector_length(shape) == ndim

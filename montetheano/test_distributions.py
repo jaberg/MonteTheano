@@ -34,20 +34,16 @@ def test_multinomial():
 class TestBasicBinomial(unittest.TestCase):
     def setUp(self):
         s_rng = self.s_rng = RandomStreams(23424)
-
         p = 0.5
-        
         self.A = s_rng.binomial(1, p)
         self.B = s_rng.binomial(1, p)
         self.C = s_rng.binomial(1, p)
-        
         self.D = self.A+self.B+self.C
-        
         self.condition = tensor.ge(self.D, 2)
-        
+
     def test_rejection_sampler(self):
         sample, updates = rejection_sample([self.A, self.B, self.C], self.condition)
-        
+
         # create a runnable function
         sampler = theano.function(inputs=[], outputs = sample, updates = updates)
 
@@ -62,7 +58,7 @@ class TestBasicBinomial(unittest.TestCase):
 
     def test_rejection_sampler_no_cond(self):
         sample, updates = rejection_sample([self.A, self.B, self.C])
-        
+
         # create a runnable function
         sampler = theano.function(inputs=[], outputs = sample, updates = updates)
 
@@ -74,6 +70,38 @@ class TestBasicBinomial(unittest.TestCase):
         # plot histogram
         pylab.hist(numpy.asarray(data))
         pylab.show()
+
+
+class TestQuantizedLogNormalMixture(unittest.TestCase):
+    def setUp(self):
+        s_rng = self.s_rng = RandomStreams(23424)
+        self.weights = tensor.dvector()
+        self.mus = tensor.dvector()
+        self.sigmas = tensor.dvector()
+
+    def test_draw_1(self):
+        q = self.s_rng.quantized_lognormal_mixture(
+                self.weights,
+                self.mus,
+                self.sigmas,
+                step=2)
+        f = theano.function([self.weights, self.mus, self.sigmas],
+                q)
+        assert f([1.0], [0.0], [0.01]) == 2.0
+        assert f([0.5, 0.5], [0.0, 0.0], [0.01, 0.001]) == 2.0
+
+    def test_draw_0(self):
+        q = self.s_rng.quantized_lognormal_mixture(
+                self.weights,
+                self.mus,
+                self.sigmas,
+                step=2,
+                draw_shape = (0,))
+        f = theano.function([self.weights, self.mus, self.sigmas],
+                q)
+        assert list(f([1.0], [0.0], [0.01])) == []
+        assert list(f([0.5, 0.5], [0.0, 0.0], [0.01, 0.001])) == []
+
 
 
 # first example: http://projects.csail.mit.edu/church/wiki/Learning_as_Conditional_Inference
