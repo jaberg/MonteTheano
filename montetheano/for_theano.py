@@ -16,7 +16,7 @@ class memoized(object):
         try:
             return self.cache[args]
         except KeyError:
-            value = self.func(*args)                    
+            value = self.func(*args)
             self.cache[args] = value
             return value
 
@@ -99,7 +99,10 @@ class Where(theano.Op):
                 [tensor.lvector()])
 
     def perform(self, node, inputs, outstorage):
-        outstorage[0][0] = numpy.asarray(numpy.where(inputs[0])[0])
+        # Fixed by GWT: ensure output from numpy matches expected output dtype
+        # Addresses hyperopt issue #58
+        outstorage[0][0] = theano._asarray(
+            numpy.where(inputs[0])[0], dtype=node.outputs[0].type.dtype)
 
     #XXX: infer_shape
 where = Where()
@@ -190,7 +193,11 @@ class Argsort(theano.Op):
         return theano.gof.Apply(self, [x], [tensor.lvector()])
 
     def perform(self, node, inputs, output_storage):
-        output_storage[0][0] = numpy.argsort(inputs[0])
+        # Fixed by GWT: ensure output from numpy matches expected output dtype
+        # Addresses hyperopt issue #58
+        output_storage[0][0] = theano._asarray(numpy.argsort(inputs[0]),
+                                           dtype=node.outputs[0].type.dtype)
+
     #XXX: infer_shape
 argsort = Argsort()
 
