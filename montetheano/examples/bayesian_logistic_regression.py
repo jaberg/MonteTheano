@@ -8,6 +8,7 @@ from rv import full_log_likelihood
 
 s_rng = RandomStreams(3424)
 
+# Define model
 w = s_rng.normal(0, 4, draw_shape=(2,))
 
 x = tensor.matrix('x')
@@ -15,9 +16,11 @@ y = tensor.nnet.sigmoid(tensor.dot(x, w))
 
 t = s_rng.binomial(p=y, draw_shape=(4,))
 
+# Define data
 X_data = numpy.asarray([[-1.5, -0.4, 1.3, 2.2],[-1.1, -2.2, 1.3, 0]], dtype=theano.config.floatX).T 
 Y_data = numpy.asarray([1., 1., 0., 0.], dtype=theano.config.floatX)
 
+# Plot full likelihood function
 RVs = dict([(t, Y_data)])                
 lik = full_log_likelihood(RVs)
 
@@ -37,6 +40,7 @@ pylab.figure(1)
 pylab.contour(X, Y, numpy.exp(numpy.asarray(response)).reshape(X.shape), 20)            
 pylab.draw()
 
+# Generate samples from the model
 sample, ll, updates = hybridmc_sample(s_rng, [w], observations={t: Y_data})
 
 sampler = theano.function([], sample + [ll] , updates=updates, givens={x: X_data}, allow_input_downcast=True)
@@ -67,6 +71,7 @@ for i in range(1000):
         pylab.draw()
         pylab.clf()
 
+# Plot averaged model
 pylab.figure(1)
 pylab.clf()
 pylab.contour(X, Y, b)            
