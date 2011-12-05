@@ -132,7 +132,7 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
         g = []
         g.append(tensor.grad(loglik, frvs))
         
-        proposals = [(p - epsilon*g/2.) for p, g in zip(proposals, g)]
+        proposals = [(p - epsilon*gg[0]/2.) for p, gg in zip(proposals, g)]
 
         rvsp = [(rvs + epsilon*rvp) for rvs,rvp in zip(frvs, proposals)]
         
@@ -142,7 +142,7 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
         
         gnew = []
         gnew.append(tensor.grad(new_loglik, rvsp))
-        proposals = [(p - epsilon*gn/2.) for p, gn in zip(proposals, gnew)]
+        proposals = [(p - epsilon*gn[0]/2.) for p, gn in zip(proposals, gnew)]
 # --
         
         Hnew = tensor.add(*[tensor.sum(tensor.sqr(p)) for p in proposals])/2. + new_loglik
@@ -161,7 +161,7 @@ def hybridmc_sample(s_rng, outputs, observations = {}):
     
     return [free_RVs_state[free_RVs.index(out)] for out in outputs], log_likelihood, updates
 
-def mh2_sample(s_rng, outputs, observations = {}):    
+def mh2_sample(s_rng, outputs, observations = {}, givens = {}):    
     all_vars = ancestors(list(observations.keys()) + list(outputs))
         
     for o in observations:
@@ -203,7 +203,7 @@ def mh2_sample(s_rng, outputs, observations = {}):
         accept = tensor.gt(lr, tensor.log(U))
 
         updates = {free_RVs_state[index] : tensor.switch(accept, proposal, free_RVs_state[index])}
-        rr.append(theano.function([], [accept], updates=updates))
+        rr.append(theano.function([], [accept], updates=updates, givens=givens))
     
     # TODO: this exacte amount of samples given back is still wrong
     def sampler(nr_samples, burnin = 100, lag = 100):
@@ -222,7 +222,7 @@ def mh2_sample(s_rng, outputs, observations = {}):
                         else:
                             full_observations = dict(observations)
                             full_observations.update(dict([(rv, s) for rv, s in zip(free_RVs, free_RVs_state)]))
-                            d.append(evaluate(evaluate_with_assignments(o, full_observations)))
+                            d.append(evaluate(evaluate_with_assignments(o, full_observations), givens=givens))
         data = [numpy.asarray(d).squeeze() for d in data]
         
         return data
