@@ -18,9 +18,41 @@ from rstreams import rng_register
 #   - Dirichlet process / CRP
 
 # -------
-# Uniform
+# Random integer
 # -------
 
+@rng_register
+def random_integers_sampler(rstream, low=0, high=1, ndim=None, draw_shape=None, dtype=numpy.dtype('int32')):
+    # TODO: this should be only integer, nothing else: check dtype check boundaries
+
+    low = tensor.as_tensor_variable(low)
+    high = tensor.as_tensor_variable(high)
+        
+    ndim, draw_shape, bcast = tensor.raw_random._infer_ndim_bcast(ndim, draw_shape, low, high)
+    op = tensor.raw_random.RandomFunction('random_integers',
+            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+            
+    rstate = rstream.new_shared_rstate()
+    new_rstate, out = op(rstate, draw_shape, low, high)
+    rstream.add_default_update(out, rstate, new_rstate)
+    return out
+
+@rng_register
+def random_integers_lpdf(node, sample, kw):
+    rstate, shape, low, high = node.inputs
+
+    # TODO: Check that sample is integer !
+
+    rval = elemwise_cond(
+        numpy.array(float('-inf')), sample < low,
+        -tensor.log(high-low+1.), sample <= high,
+        numpy.array(float('-inf')))
+    return rval
+
+
+# -------
+# Uniform
+# -------
 
 @rng_register
 def uniform_sampler(rstream, low=0.0, high=1.0, ndim=None, draw_shape=None, dtype=theano.config.floatX):
@@ -58,10 +90,10 @@ def uniform_params(node):
     rstate, shape, low, high = node.inputs
     return [low, high]
 
+
 # ------
 # Normal
 # ------
-
 
 @rng_register
 def normal_sampler(rstream, mu=0.0, sigma=1.0, draw_shape=None, ndim=None, dtype=None):
@@ -434,7 +466,8 @@ def multinomial_helper_lpdf(*args, **kwargs):
 # ---------
 # Dirichlet-Multinomial
 #
-# Only the LPDF is implemented, the sampler is bogus
+# Only the LPDF is implemented, the sampler is bogus. Could be use as an optimization to remove
+# a dirichlet-multinomial to a single op
 # ---------
 
 class DM(theano.Op):
