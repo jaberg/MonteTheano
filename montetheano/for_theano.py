@@ -333,6 +333,14 @@ def clone_get_equiv(i, o, replacements=None):
     else:
         d = replacements
 
+#    for old, new in replacements.items():
+#        if new in replacements:
+#            # I think we want to do something recursive here, but
+#            # it feels like it might get tricky? This reminds me of the
+#            # 'sorted_givens' branch on github/jaberg/Theano
+#            raise NotImplementedError('think before implementing')
+#        replacements[new] = new
+
     for input in i:
         if input not in d:
             d[input] = input

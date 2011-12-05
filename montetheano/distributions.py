@@ -123,6 +123,11 @@ def normal_get_mu(v):
         return v.owner.inputs[2]
     raise ValueError('v is not a normal draw', v)
 
+def normal_get_mu(v):
+    # look in uniform_sampler to see the positions of these things
+    if rv_dist_name(v) == 'normal':
+        return v.owner.inputs[2]
+    raise ValueError('v is not a normal draw', v)
 
 def normal_get_sigma(v):
     # look in uniform_sampler to see the positions of these things
