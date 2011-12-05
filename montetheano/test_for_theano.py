@@ -4,6 +4,7 @@ from theano import tensor
 from for_theano import infer_shape
 import rstreams
 import distributions
+import for_theano
 
 def test_infer_shape_const():
     shp = infer_shape(tensor.alloc(0, 5, 6, 7))
@@ -43,4 +44,22 @@ def test_shape_vector_rv_rstreams():
 def test_shape_vector_rv_dirichlet_rstreams():
     R = rstreams.RandomStreams(234)
     n = R.dirichlet(alpha=numpy.ones(10,), draw_shape=(10,))
-    assert infer_shape(n) == (10,)
+    assert infer_shape(n) == (10,), infer_shape(n)
+
+def test_find():
+
+    query = tensor.ivector()
+    keepset = tensor.ivector()
+    r = for_theano.find(query, keepset)
+
+    assert r.ndim == 1
+    assert 'int' in r.dtype
+
+    f = theano.function([query, keepset], r)
+
+    assert numpy.all(f([], []) == [])
+    assert numpy.all(f([2, 1, 0, 4, 3], [5, 5, 5, 5]) == [])
+    assert numpy.all(f([2, 1, 0, 4, 3], [4]) == [3])
+    assert numpy.all(f([2, 1, 0, 4, 3], [4, 1]) == [1, 3])
+    assert numpy.all(f([2, 1, 0, 4, 3], [1, 4]) == [1, 3])
+    assert numpy.all(f([], [1, 4]) == [])

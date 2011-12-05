@@ -16,7 +16,7 @@ class memoized(object):
         try:
             return self.cache[args]
         except KeyError:
-            value = self.func(*args)                    
+            value = self.func(*args)
             self.cache[args] = value
             return value
 
@@ -76,6 +76,7 @@ class Bincount(theano.Op):
             tmp[:len(rval)] = rval
             rval = tmp
         outstorage[0][0] = rval
+    #XXX: infer_shape
 
 bincount = Bincount()
 
@@ -99,9 +100,107 @@ class Where(theano.Op):
                 [tensor.lvector()])
 
     def perform(self, node, inputs, outstorage):
-        outstorage[0][0] = numpy.asarray(numpy.where(inputs[0])[0])
+        # Fixed by GWT: ensure output from numpy matches expected output dtype
+        # Addresses hyperopt issue #58
+        outstorage[0][0] = theano._asarray(
+            numpy.where(inputs[0])[0], dtype=node.outputs[0].type.dtype)
+
+    #XXX: infer_shape
 where = Where()
 
+
+class BoolTake(theano.Op):
+    """
+    Return the equivalent of
+    [x[i] for i, j in enumerate(tf) if j]
+
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, x, tf):
+        x = tensor.as_tensor_variable(x)
+        tf = tensor.as_tensor_variable(tf)
+        if x.ndim < 1: raise TypeError()
+        if x.ndim != 1: raise TypeError()
+        if 'int' not in tf.dtype: raise TypeError()
+        return theano.gof.Apply(self,
+                [x, tf],
+                [x.type()])
+
+    def perform(self, node, inputs, output_storage):
+        x, tf = inputs
+        xx = x[:len(tf)]
+        rval = x[:len(tf)][tf > 0]
+        output_storage[0][0] = rval
+bool_take = BoolTake()
+
+
+class Find(theano.Op):
+    """
+    Returns positions in `query` where elements of `keepset` occur.
+
+    Return the equivalent of
+    [i for (i, q) in enumerate(query) if q in keepset]
+
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, query, keepset):
+        query = tensor.as_tensor_variable(query)
+        keepset = tensor.as_tensor_variable(keepset)
+        if query.ndim != 1: raise TypeError()
+        if keepset.ndim != 1: raise TypeError()
+        if 'int' not in query.dtype: raise TypeError()
+        if 'int' not in keepset.dtype: raise TypeError()
+        return theano.gof.Apply(self,
+                [query, keepset],
+                [keepset.type()])
+
+    def perform(self, node, inputs, output_storage):
+        query, keepset = inputs
+        keepset = set(keepset)
+        rval = numpy.asarray(
+                [i for i, e in enumerate(query) if e in keepset],
+                dtype=inputs[1].dtype)
+        output_storage[0][0] = rval
+    #XXX: infer_shape
+find = Find()
+
+class Argsort(theano.Op):
+    """
+    Return the equivalent of numpy.argsort(x)
+    """
+
+    def __hash__(self):
+        return hash(type(self))
+
+    def __eq__(self, other):
+        return type(self) == type(other)
+
+    def make_node(self, x):
+        x = tensor.as_tensor_variable(x)
+        if x.ndim != 1: raise TypeError()
+        if 'complex' in str(x.dtype): raise TypeError()
+        return theano.gof.Apply(self, [x], [tensor.lvector()])
+
+    def perform(self, node, inputs, output_storage):
+        # Fixed by GWT: ensure output from numpy matches expected output dtype
+        # Addresses hyperopt issue #58
+        output_storage[0][0] = theano._asarray(numpy.argsort(inputs[0]),
+                                           dtype=node.outputs[0].type.dtype)
+
+    #XXX: infer_shape
+argsort = Argsort()
 
 def elemwise_cond(*args):
     """Build a nested elemwise if elif ... statement.
@@ -204,39 +303,61 @@ def ancestors(variable_list, blockers = None):
 
 
 def clone_keep_replacements(i, o, replacements=None):
+    """Duplicate nodes from i -> o inclusive.
+
+    i - sequence of variables
+    o - sequence of variables
+    replacements - dictionary mapping each old node to its new one.
+        (this is modified in-place as described in `clone_get_equiv`)
+
+    By default new inputs are actually the same as old inputs, but
+    when a replacements dictionary is provided this will not generally be the
+    case.
+    """
     equiv = clone_get_equiv(i, o, replacements)
     return [equiv[input] for input in i], [equiv[output] for output in o]
 
 
 def clone_get_equiv(i, o, replacements=None):
+    """Duplicate nodes from `i` to `o` inclusive.
+
+    Returns replacements dictionary, mapping each old node to its new one.
+
+    i - sequence of variables
+    o - sequence of variables
+    replacements - initial value for return value, modified in place.
+
+    """
     if replacements is None:
-	    d = {}
+        d = {}
     else:
         d = replacements
-    
+
     for input in i:
         if input not in d:
             d[input] = input
-    
+
     for apply in graph.io_toposort(i, o):
         for input in apply.inputs:
             if input not in d:
                 d[input] = input
-        
+
         new_apply = apply.clone_with_new_inputs([d[i] for i in apply.inputs])
         if apply not in d:
             d[apply] = new_apply
-        
+
         for output, new_output in zip(apply.outputs, new_apply.outputs):
             if output not in d:
                 d[output] = new_output
-    
+
     for output in o:
         if output not in d:
             d[output] = output.clone()
-    
+
     return d
-    
+
+
+#XXX: rename -> clone_with_assignment
 def evaluate_with_assignments(f, assignment):
     dfs_variables = ancestors([f], blockers=assignment.keys())
     frontier = [r for r in dfs_variables
@@ -244,9 +365,9 @@ def evaluate_with_assignments(f, assignment):
     cloned_inputs, cloned_outputs = clone_keep_replacements(frontier, [f],
             replacements=assignment)
     out, = cloned_outputs
-    
     return out
-    
+
+
 #
 # SHAPE INFERENCE
 #
@@ -260,7 +381,7 @@ if not hasattr(theano.tensor.basic.Shape, 'infer_shape'):
 # MakeVector.infer_shape
 if not hasattr(theano.tensor.opt.MakeVector, 'infer_shape'):
     def makevector_infer_shape(self, node, ishapes):
-        return [(node.inputs[0],)]
+        return [(len(node.inputs),)]
     theano.tensor.opt.MakeVector.infer_shape = makevector_infer_shape
 
 def infer_shape_helper(v, assume_shared_size_fixed):
