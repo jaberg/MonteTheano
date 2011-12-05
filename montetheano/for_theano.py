@@ -4,8 +4,8 @@ import theano
 from theano import tensor
 from theano.gof import graph
 
-def evaluate(var):
-    f = theano.function([], var, mode=theano.Mode(linker='py', optimizer=None))
+def evaluate(var, givens=None):
+    f = theano.function([], var, mode=theano.Mode(linker='py', optimizer=None), givens=givens)
     return f()
 
 class memoized(object):
@@ -25,7 +25,8 @@ def as_variable(thing, type=None):
         if type is None or thing.type == type:
             return thing
         else:
-            raise TypeError(thing)
+            return thing
+            # raise TypeError(thing)
     if hasattr(thing, 'type'):
         if type is None or thing.type == type:
             return thing
