@@ -857,7 +857,7 @@ class BGMM1(theano.Op):
 
     def infer_shape(self, node, ishapes):
         rstate, weights, mus, sigmas, low, high, draw_shape = node.inputs
-        return [None, draw_shape]
+        return [None, [draw_shape[i] for i in range(self.otype.ndim)]]
 
 @rng_register
 def BGMM1_sampler(rstream, weights, mus, sigmas, low, high,
@@ -988,7 +988,7 @@ class LognormalMixture(theano.Op):
 
     def infer_shape(self, node, ishapes):
         rstate, weights, mus, sigmas, draw_shape = node.inputs
-        return [None, draw_shape]
+        return [None, [draw_shape[i] for i in range(self.otype.ndim)]]
 
 @rng_register
 def lognormal_mixture_sampler(rstream, weights, mus, sigmas,
