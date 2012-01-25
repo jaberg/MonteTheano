@@ -717,7 +717,6 @@ class GMM1(theano.Op):
         rstate, weights, mus, sigmas, draw_shape = inputs
 
         n_samples = numpy.prod(draw_shape)
-        n_components = len(weights)
         rstate = copy.copy(rstate)
 
         active = numpy.argmax(
@@ -733,7 +732,7 @@ class GMM1(theano.Op):
 
     def infer_shape(self, node, ishapes):
         rstate, weights, mus, sigmas, draw_shape = node.inputs
-        return [None, draw_shape]
+        return [None, [draw_shape[i] for i in range(self.otype.ndim)]]
 
 @rng_register
 def GMM1_sampler(rstream, weights, mus, sigmas,
