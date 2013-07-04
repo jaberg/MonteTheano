@@ -1,7 +1,9 @@
-
 ============
 Monte Theano
 ============
+
+**This is an inactive project - for a Theano-based inference engine for graphical models, check out the
+[PyMC3](https://github.com/pymc-devs/pymc/tree/pymc3) branch of [PyMC](http://pymc-devs.github.io/pymc/)**
 
 Monte Carlo inference algorithms for stochastic Theano programs.
 
